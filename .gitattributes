@@ -1,0 +1,20 @@
+# リポジトリ内は LF に統一する。
+# Docker コンテナ（Linux）でシェルスクリプトや設定ファイルを実行するため、
+# CRLF が混ざると起動時に壊れる。
+* text=auto eol=lf
+
+# Windows でのみ使うものは CRLF のまま
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# バイナリ（差分を取らない・改行変換しない）
+*.xlsx binary
+*.xlsm binary
+*.xls  binary
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.woff  binary
+*.woff2 binary
