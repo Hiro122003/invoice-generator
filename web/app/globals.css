@@ -1,0 +1,155 @@
+:root {
+  --paper: #f1f4f7;
+  --surface: #ffffff;
+  --ink: #16202e;
+  --ink-soft: #56657c;
+  --rule: #cfd8e2;
+  --accent: #1f5c8b;
+  --ok-fg: #2c5f2d;
+  --ok-bg: #e4efe4;
+  --warn-fg: #8a5a16;
+  --warn-bg: #f5eddc;
+  --ng-fg: #8a3a3a;
+  --ng-bg: #f3e4e4;
+
+  --gothic: "BIZ UDPGothic", "Yu Gothic", "Hiragino Kaku Gothic ProN", "Meiryo",
+    system-ui, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #10151b;
+    --surface: #171d26;
+    --ink: #e2e8f0;
+    --ink-soft: #9aa8bc;
+    --rule: #2c3745;
+    --accent: #79add4;
+    --ok-fg: #9ec89f;
+    --ok-bg: #1c2a1c;
+    --warn-fg: #d4a257;
+    --warn-bg: #2e2617;
+    --ng-fg: #d98c8c;
+    --ng-bg: #2e1d1d;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 48px 24px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--gothic);
+  line-height: 1.8;
+  -webkit-font-smoothing: antialiased;
+}
+
+main {
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin: 0 0 8px;
+}
+
+.lede {
+  color: var(--ink-soft);
+  font-size: 14px;
+  margin: 0 0 36px;
+}
+
+h2 {
+  font-size: 14px;
+  font-family: var(--mono);
+  letter-spacing: 0.12em;
+  color: var(--ink-soft);
+  font-weight: 600;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+}
+
+dl {
+  margin: 0;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+dt {
+  flex: 0 0 120px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+dd {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 2px 9px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.chip.ok {
+  color: var(--ok-fg);
+  background: var(--ok-bg);
+}
+
+.chip.warn {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+}
+
+.chip.ng {
+  color: var(--ng-fg);
+  background: var(--ng-bg);
+}
+
+.detail {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.err {
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border-left: 3px solid var(--ng-fg);
+  background: var(--surface);
+  font-size: 13.5px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--paper);
+  padding: 1px 6px;
+  border: 1px solid var(--rule);
+}

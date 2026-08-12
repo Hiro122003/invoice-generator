@@ -45,16 +45,25 @@ Excel取込は openpyxl、PDF生成は Playwright（HTML → PDF）。
 ## 開発
 
 ```bash
+cp .env.example .env                              # 初回のみ
 docker compose up -d                              # 3層を起動
 docker compose exec api alembic upgrade head      # マイグレーション
 docker compose exec api pytest                    # テスト
 ```
 
+起動後の確認先。
+
+| | |
+|---|---|
+| 画面 | http://localhost:3000 |
+| API | http://localhost:8000/api/health/db |
+| API仕様（自動生成） | http://localhost:8000/docs |
+
 ## 進捗
 
 | # | フェーズ | 状態 |
 |---|---|---|
-| 1 | 基盤構築（Docker / DDL / 雛形） | 着手前 |
+| 1 | 基盤構築（Docker / DDL / 雛形） | **完了** |
 | 2 | 取込 | — |
 | 3 | リスト表 | — |
 | 4 | 生成ロジック | — |

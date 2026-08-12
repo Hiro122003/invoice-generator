@@ -1,0 +1,14 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+sqlalchemy>=2.0.36
+alembic>=1.14
+psycopg[binary]>=3.2
+pydantic-settings>=2.6
+python-multipart>=0.0.12
+
+# Excel取込
+openpyxl>=3.1
+
+# テスト
+pytest>=8.3
+httpx>=0.28
