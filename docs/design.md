@@ -326,7 +326,7 @@ PostgreSQL 17  (Docker)                データベース名: invoice
 
 ## 8. テーブル定義（主要部）
 
-全16テーブル。命名は snake_case。
+全17テーブル。命名は snake_case。実装は `api/app/models/` を参照。
 
 ### billing_line — 明細行
 

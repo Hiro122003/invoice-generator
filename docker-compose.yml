@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgres:17
+    container_name: invoice-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-invoice}
+      TZ: Asia/Tokyo
+      # 日本語を含むデータを扱うため、照合順序を明示する
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # api は DB が受付可能になるまで起動を待つ
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-invoice}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./api
+    container_name: invoice-api
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-invoice}
+      TZ: Asia/Tokyo
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3000}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./api:/app
+      # 参照データ（リポジトリには含まれない。各自のローカルに置く）
+      - ./fixtures:/fixtures:ro
+      # 発行済みPDFの保管先
+      - ./storage:/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  web:
+    build: ./web
+    container_name: invoice-web
+    environment:
+      # ブラウザから叩く先（ホスト側のポート）
+      NEXT_PUBLIC_API_BASE: http://localhost:${API_PORT:-8000}
+      # サーバーコンポーネントから叩く先（コンテナ間ネットワーク）
+      API_INTERNAL_BASE: http://api:8000
+      TZ: Asia/Tokyo
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - ./web:/app
+      # コンテナ内で入れた依存をホスト側の空ディレクトリで潰さない
+      - web_node_modules:/app/node_modules
+      - web_next:/app/.next
+    depends_on:
+      - api
+    command: npm run dev
+
+volumes:
+  pgdata:
+  web_node_modules:
+  web_next:
