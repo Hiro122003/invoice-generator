@@ -11,6 +11,20 @@ export const API_BASE =
     ? process.env.API_INTERNAL_BASE ?? "http://api:8000"
     : process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
+/**
+ * ブラウザが直接開くURL（<a href> やダウンドードリンクなど）専用。
+ *
+ * API_BASE は実行環境（サーバー/ブラウザ）で値が変わるため、
+ * "use client" コンポーネントの render 内で href を組み立てると、
+ * サーバー側の初回レンダリング（SSR）ではコンテナ内部URLが焼き込まれ、
+ * ブラウザでの再描画時に公開URLへ変わってハイドレーション不整合になる。
+ *
+ * href は「ブラウザが後で開く文字列」でしかなく、SSR中にfetchするわけ
+ * ではないので、常に公開URLで統一してよい。
+ */
+export const PUBLIC_API_BASE =
+  process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+
 export type Period = {
   id: number;
   start_date: string;
@@ -88,4 +102,122 @@ export async function fetchPeriods(): Promise<Period[]> {
   const res = await fetch(`${API_BASE}/api/periods`, { cache: "no-store" });
   if (!res.ok) throw new Error(`請求期間の取得に失敗しました (${res.status})`);
   return res.json();
+}
+
+// ---------------------------------------------------------------------
+// F-03 リスト表
+// ---------------------------------------------------------------------
+
+export type ContractRow = {
+  id: number;
+  contract_no: string;
+  client_name: string;
+  site_name: string;
+  address: string | null;
+  skip_statement: boolean;
+  line_count: number;
+  total_ex_tax: string | number;
+  has_reduced: boolean;
+  has_standard: boolean;
+  has_counter: boolean;
+  has_equipment: boolean;
+};
+
+export type ContractSummary = {
+  count: number;
+  total_ex_tax: string | number;
+};
+
+export type ContractListResponse = {
+  items: ContractRow[];
+  summary: ContractSummary;
+};
+
+export type BillingLineRow = {
+  id: number;
+  item_code: string;
+  item_name: string;
+  tax_category: "STANDARD" | "REDUCED";
+  billing_group: "EQUIPMENT" | "COUNTER";
+  delivery_date: string | null;
+  quantity: string | number;
+  base_charge: string | number | null;
+  unit_price: string | number | null;
+  duration: string | number | null;
+  unit_price_type: "MONTHLY" | "DAILY" | "SALE";
+  amount: string | number;
+  is_billable: boolean;
+  is_edited: boolean;
+};
+
+export type ContractFilters = {
+  client?: string;
+  site?: string;
+  contract_no?: string;
+  tax?: "STANDARD" | "REDUCED" | "";
+  group?: "EQUIPMENT" | "COUNTER" | "";
+  skip_statement?: "" | "true" | "false";
+  min_amount?: string;
+  max_amount?: string;
+};
+
+export function buildContractQuery(filters: ContractFilters): string {
+  const params = new URLSearchParams();
+  if (filters.client) params.set("client", filters.client);
+  if (filters.site) params.set("site", filters.site);
+  if (filters.contract_no) params.set("contract_no", filters.contract_no);
+  if (filters.tax) params.set("tax", filters.tax);
+  if (filters.group) params.set("group", filters.group);
+  if (filters.skip_statement) params.set("skip_statement", filters.skip_statement);
+  if (filters.min_amount) params.set("min_amount", filters.min_amount);
+  if (filters.max_amount) params.set("max_amount", filters.max_amount);
+  return params.toString();
+}
+
+export async function fetchContracts(
+  periodId: number,
+  filters: ContractFilters
+): Promise<ContractListResponse> {
+  const qs = buildContractQuery(filters);
+  const res = await fetch(
+    `${API_BASE}/api/periods/${periodId}/contracts${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) throw new Error(`契約一覧の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+export async function fetchContractLines(
+  periodId: number,
+  contractId: number
+): Promise<BillingLineRow[]> {
+  const res = await fetch(
+    `${API_BASE}/api/periods/${periodId}/contracts/${contractId}/lines`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) throw new Error(`明細行の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+export async function updateSkipStatement(
+  contractId: number,
+  skipStatement: boolean
+): Promise<{ id: number; contract_no: string; skip_statement: boolean }> {
+  const res = await fetch(`${API_BASE}/api/contracts/${contractId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ skip_statement: skipStatement }),
+  });
+  if (!res.ok) throw new Error(`更新に失敗しました (${res.status})`);
+  return res.json();
+}
+
+const UNIT_PRICE_TYPE_LABEL: Record<BillingLineRow["unit_price_type"], string> = {
+  MONTHLY: "月単価",
+  DAILY: "日単価",
+  SALE: "販売単価",
+};
+
+export function formatUnitPriceType(t: BillingLineRow["unit_price_type"]): string {
+  return UNIT_PRICE_TYPE_LABEL[t] ?? t;
 }

@@ -71,10 +71,12 @@ export default async function PeriodsPage() {
               {periods.map((p) => (
                 <tr key={p.id}>
                   <td>
-                    <span className="label">{p.label}</span>
-                    <span className="range">
-                      {formatDate(p.start_date)} 〜 {formatDate(p.end_date)}
-                    </span>
+                    <Link href={`/periods/${p.id}/contracts`} className="rowlink">
+                      <span className="label">{p.label}</span>
+                      <span className="range">
+                        {formatDate(p.start_date)} 〜 {formatDate(p.end_date)}
+                      </span>
+                    </Link>
                   </td>
                   <td>
                     <StatusChip status={p.status} />
