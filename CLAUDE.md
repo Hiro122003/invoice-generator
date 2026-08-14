@@ -266,19 +266,19 @@ git diff --cached       # 特に Excel・PDF・.env が入っていないか
 
 ## 現在地
 
-**フェーズ4（生成ロジック）に着手する段階。** フェーズ1〜3は完了・main にマージ済み。
+**フェーズ5（手修正）に着手する段階。** フェーズ1〜4は完了・main にマージ済み。
 
 | # | フェーズ | 状態 |
 |---|---|---|
 | 1 | 基盤構築（Docker / DDL / 雛形） | **完了**（PR #1） |
 | 2 | 取込（F-01 / F-02） | **完了**（PR #3） |
 | 3 | リスト表（F-03） | **完了**（PR #4） |
-| 4 | 生成ロジック（F-04 / F-06） | これから |
-| 5 | 手修正（F-05 / F-10） | — |
+| 4 | 生成ロジック（F-04 / F-06） | **完了**（PR #5） |
+| 5 | 手修正（F-05 / F-10） | これから |
 | 6 | PDF・確定（F-08 / F-09 / F-11） | — |
 | 7 | チェック機能（F-07） | — |
 
-フェーズ4完了時は `/acceptance-check` で受け入れ基準を検証する。
+フェーズ4完了時に `/acceptance-check` の受け入れ基準を検証ずみ（全項目一致）。
 
 ### フェーズ1で出来ていること
 
@@ -328,18 +328,42 @@ git diff --cached       # 特に Excel・PDF・.env が入っていないか
 実行環境によらず `PUBLIC_API_BASE` を使う**（`fetch()` 用の `API_BASE` とは別）。
 `web/lib/api.ts` を参照。
 
-### フェーズ4で作るもの
+### フェーズ4で出来ていること
+
+- `POST /api/periods/{id}/generate` — 明細書・請求書を生成（洗い替え）。
+  請求書は `(customer_id, tax_category)` ごとに1通、明細書は
+  `(invoice_id, contract_id, billing_group)` ごとに1枚。VBAの分岐①②③は
+  この GROUP BY に置き換わって消滅した
+- `GET /api/periods/{id}/invoices` / `GET /api/invoices/{id}` — 請求書
+- `GET /api/invoices/{id}/statements` / `GET /api/statements/{id}` — 明細書
+- 金額は確定するまで保存せず、常時集計クエリで算出。消費税は明細書ごと・
+  請求書ごとに2回独立してCEIL（`api/app/api/statements.py` の
+  `_INVOICE_LIST_SQL` / `_STATEMENT_LIST_SQL`）
+- 受け入れ基準は全項目一致。請求書2通・明細書87枚（10%側83+8%側4）、
+  10%消費税258,374円・8%消費税2,800円、分岐①76/②3/③1
+- 再生成は洗い替え。対象請求期間の `invoice`/`invoice_statement` だけを
+  作り直す。`billing_line.statement_id` は `ON DELETE SET NULL` で
+  自動的に外れる（明細行本体は触らない）
+
+**教訓（money-auditが発見）**: `GET /api/invoices/{id}/statements` が
+`s.contract_id` をSELECTし忘れ、`_statement_row_to_out` の
+`r.get("contract_id", 0)` がエラーを握りつぶして常に0を返していた。
+金額には影響しなかったが、**フォールバック付きの `.get()` でSQLの
+列漏れを握りつぶさない**。`r["contract_id"]` のように直接参照すれば
+列が無いとき即座に落ちて気づける。
+
+### フェーズ5で作るもの
 
 | | |
 |---|---|
-| F-04 | 明細書生成。契約×請求グループ単位で `invoice_statement` を生成。8%/10%を同一処理で扱う |
-| F-06 | 請求書生成。明細書の合計を積み上げ税率ごとに1通の `invoice` を生成 |
+| F-05 | 明細手修正。数量・基本料・単価・日数/月数の4項目を編集。金額は生成列が自動計算 |
+| F-10 | 修正履歴。誰がいつ何をいくらからいくらに変えたかを記録 |
+| P-04 | 請求明細書一覧 `/periods/[id]/statements` |
+| P-05 | 明細書詳細・編集 `/statements/[id]`。紙面レイアウトを再現し、セル編集で3階層の合計が即時連動 |
+| P-06 | 請求書 `/periods/[id]/invoices` |
 
-画面（P-04/P-05/P-06）はフェーズ5でF-05（手修正）と一緒に作る。
-このフェーズはロジックとAPIまで。
-
-完了条件は `/acceptance-check` の受け入れ基準が全項目一致すること。
-VBAの分岐①②③（備品のみ／備品＋カウンタ／カウンタのみ）が
-`GROUP BY contract_id, billing_group` に置き換わり消滅する
-（`docs/vba-analysis.md` 3章）。消費税は明細書ごと・請求書ごとに
-**2回独立して**切り上げる（CLAUDE.md冒頭のルール参照）。
+金額列（`amount`）は直接編集させない。4項目からの生成列のままにし、
+「数量×単価と金額が食い違う明細書」を物理的に作れない状態を維持する。
+確定済み期間（`PeriodStatus.CONFIRMED`）は編集不可。
+`PATCH /api/lines/{id}` は1リクエストで明細行・明細書・請求書の
+3階層の金額をまとめて返す設計にする（`docs/design.md` 9章）。
