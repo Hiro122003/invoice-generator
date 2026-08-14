@@ -94,9 +94,19 @@ VBAの `=(G*F)+(H*I*F)` / `=(G*F)+(H*F)` を1本に統合したもの。
 
 ## コマンド
 
+前提: **Docker Desktop を先に起動しておく**（これだけは手動）。
+以降は3層とも docker compose が面倒を見るので、`npm run dev` や
+`uvicorn` を手で叩く必要はない（`docker-compose.yml` の `command:` に書いてある）。
+
 ```bash
-# 起動（3層すべて）
+# 起動（3層すべて）。--reload / dev サーバー込みで立ち上がる
 docker compose up -d
+
+# 状態を見る
+docker compose ps
+
+# 止める（DBのデータはボリュームに残る）
+docker compose down
 
 # DBに接続
 docker compose exec db psql -U postgres -d invoice
@@ -240,12 +250,12 @@ git diff --cached       # 特に Excel・PDF・.env が入っていないか
 
 ## 現在地
 
-**フェーズ1（基盤構築）に着手する段階。** 設計は完了、実装は未着手。
+**フェーズ2（取込）に着手する段階。** フェーズ1は完了・main にマージ済み。
 
 | # | フェーズ | 状態 |
 |---|---|---|
-| 1 | 基盤構築（Docker / DDL / 雛形） | これから |
-| 2 | 取込（F-01 / F-02） | — |
+| 1 | 基盤構築（Docker / DDL / 雛形） | **完了**（PR #1） |
+| 2 | 取込（F-01 / F-02） | これから |
 | 3 | リスト表（F-03） | — |
 | 4 | 生成ロジック（F-04 / F-06） | — |
 | 5 | 手修正（F-05 / F-10） | — |
@@ -253,3 +263,29 @@ git diff --cached       # 特に Excel・PDF・.env が入っていないか
 | 7 | チェック機能（F-07） | — |
 
 フェーズ4完了時は `/acceptance-check` で受け入れ基準を検証する。
+
+### フェーズ1で出来ていること
+
+- `docker compose up -d` で3層が起動する（Next.js 16 / FastAPI / PostgreSQL 17）
+- 全17テーブルが Alembic マイグレーション `0001_initial_schema` で作られる
+- `billing_line.amount` が生成列として機能し、VBAの計算式を再現している
+  （実データの値で検証するテストが `api/tests/test_amount_calculation.py` に11件）
+- `GET /api/health/db` で接続とテーブル数を確認できる
+
+### フェーズ2で作るもの
+
+| | |
+|---|---|
+| F-01 | Excel取込。937行 × 49列を洗い替え投入。マスタは自動UPSERT |
+| F-02 | 取込検証。列構成・請求期間の単一性・販売先の単一性・未知の品番 |
+| P-01 | 請求期間一覧 `/periods` |
+| P-02 | 取込画面 `/periods/[id]/import` |
+
+完了条件は `fixtures/202603.xlsx` を投入して **937行がDBに入る**こと。
+
+このフェーズで初めて VBA の判定ロジックを移植する。
+
+- 品番の全角判定（`ＳＲ－ＷＰＥＴ` / `ＰＣＡ`）→ `item.tax_category` / `billing_group`
+- 品名の「値引」判定 → `item.is_billable`
+- 会社名の名寄せ（全角スペース・（株）・㈱・（仮称）の除去）→ `client`
+- 単価3系統の判別 → `unit_price` + `unit_price_type`
