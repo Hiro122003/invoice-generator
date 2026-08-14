@@ -39,38 +39,43 @@ def db():
 
 @pytest.fixture
 def fixture_graph(db: Session) -> dict:
-    """明細行を1本作るのに最低限必要なマスタと取引の親を用意する。"""
-    office = Office(code="7104600", name="テスト営業所")
-    customer = Customer(code="710429001", name="架空事務機株式会社")
-    client = Client(name="サンプル工業株式会社", normalized_name="サンプル工業")
-    rep = SalesRep(code="900001", name="テスト担当")
+    """明細行を1本作るのに最低限必要なマスタと取引の親を用意する。
+
+    コードや名称には接頭辞を付けて、開発用に投入済みの実データと
+    一意制約でぶつからないようにする。請求期間も過去の架空月にする。
+    """
+    office = Office(code="TEST-OFFICE", name="テスト営業所")
+    customer = Customer(code="TEST-CUSTOMER", name="テスト販売先株式会社")
+    client = Client(name="テスト得意先株式会社", normalized_name="テスト得意先株式会社")
+    rep = SalesRep(code="TEST-REP", name="テスト担当")
     db.add_all([office, customer, client, rep])
     db.flush()
 
     site = Site(
-        name="サンプル工業株式会社　第02サンプル改修工事",
-        address="東京都サンプル区",
+        name="テスト得意先株式会社　テスト現場",
+        address="東京都テスト区",
         client_id=client.id,
     )
     db.add(site)
     db.flush()
 
     contract = Contract(
-        contract_no="7000000000002",
+        contract_no="TEST-CONTRACT-0001",
         customer_id=customer.id,
         site_id=site.id,
         sales_rep_id=rep.id,
         office_id=office.id,
     )
-    item = Item(code="DM-001", name="テスト品目", tax_category=TaxCategory.STANDARD)
-    period = BillingPeriod(start_date=date(2025, 3, 1), end_date=date(2025, 3, 31))
+    item = Item(code="TEST-ITEM", name="テスト品目", tax_category=TaxCategory.STANDARD)
+    # 実運用ではありえない月にして、開発データの期間と衝突させない
+    period = BillingPeriod(start_date=date(1990, 1, 1), end_date=date(1990, 1, 31))
     db.add_all([contract, item, period])
     db.flush()
 
     order = RentalOrder(
         period_id=period.id,
         contract_id=contract.id,
-        order_no="700000000000201",
+        order_no="TEST-ORDER-0001",
     )
     db.add(order)
     db.flush()
