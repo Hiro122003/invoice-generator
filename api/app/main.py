@@ -1,12 +1,9 @@
-"""FastAPI エントリポイント。
-
-フェーズ1では疎通確認のみ。業務APIはフェーズ2以降で追加する。
-"""
+"""FastAPI エントリポイント。"""
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health, imports, periods
+from app.api import contracts, health, imports, periods
 from app.config import settings
 
 app = FastAPI(
@@ -29,3 +26,4 @@ app.add_middleware(
 app.include_router(health.router, tags=["health"])
 app.include_router(periods.router)
 app.include_router(imports.router)
+app.include_router(contracts.router)

@@ -484,3 +484,177 @@ td.muted {
   color: var(--ink-soft);
   margin-bottom: 20px;
 }
+
+/* ==========================================================
+   リスト表（フェーズ3で追加）
+   ========================================================== */
+
+main.wide {
+  max-width: 1180px;
+}
+
+.filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.filterbar input,
+.filterbar select {
+  padding: 7px 10px;
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--gothic);
+  font-size: 13px;
+}
+
+.filterbar input[type="text"] {
+  width: 150px;
+}
+
+.filterbar input[type="number"] {
+  width: 100px;
+}
+
+.filterbar input:focus,
+.filterbar select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  color: var(--ink-soft);
+  padding: 7px 10px;
+}
+
+.btn.ghost:hover {
+  color: var(--accent);
+}
+
+.summarybar {
+  display: flex;
+  gap: 24px;
+  padding: 10px 16px;
+  background: var(--accent-bg, var(--paper));
+  border: 1px solid var(--rule);
+  margin-bottom: 16px;
+  font-size: 13.5px;
+}
+
+.summarybar strong {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+}
+
+tr.clickable {
+  cursor: pointer;
+}
+
+tr.clickable:hover {
+  background: var(--paper);
+}
+
+.sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.toggle {
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-family: var(--gothic);
+  font-size: 12px;
+  padding: 4px 12px;
+  cursor: pointer;
+  min-width: 70px;
+}
+
+.toggle:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.toggle.on {
+  background: var(--warn-bg);
+  border-color: var(--warn-fg);
+  color: var(--warn-fg);
+  font-weight: 600;
+}
+
+.toggle:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+tr.expand-row td {
+  background: var(--paper);
+  padding: 16px 20px;
+}
+
+.lines-table {
+  font-size: 12.5px;
+}
+
+.lines-table th {
+  font-size: 10.5px;
+}
+
+.lines-table tr.excluded {
+  opacity: 0.55;
+}
+
+.lines-table tr.excluded td {
+  text-decoration: line-through;
+}
+
+.edited-mark {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 6px;
+}
+
+.tag.reduced {
+  color: var(--warn-fg);
+  border-color: currentColor;
+}
+
+.tag.counter {
+  margin-left: 4px;
+  color: var(--accent);
+}
+
+.tag.ng {
+  margin-left: 6px;
+  color: var(--ng-fg);
+}
+
+.err.small,
+.muted.small {
+  font-size: 12px;
+  padding: 8px 0;
+  margin: 0;
+}
+
+.rowlink {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+}
+
+.rowlink:hover .label {
+  color: var(--accent);
+}
