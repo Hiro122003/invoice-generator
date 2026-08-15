@@ -187,6 +187,71 @@ export async function unconfirmPeriod(
 }
 
 // ---------------------------------------------------------------------
+// F-09 PDF出力
+// ---------------------------------------------------------------------
+
+export type DocType = "INVOICE" | "STATEMENT" | "BUNDLE_ZIP";
+
+export type ExportedFile = {
+  doc_type: DocType;
+  invoice_id: number | null;
+  revision: number;
+  file_name: string;
+  byte_size: number;
+};
+
+export type ExportResult = {
+  period_id: number;
+  files: ExportedFile[];
+};
+
+export type IssuedDocumentRow = {
+  id: number;
+  period_id: number;
+  invoice_id: number | null;
+  doc_type: DocType;
+  revision: number;
+  file_name: string;
+  byte_size: number | null;
+  issued_by_name: string;
+  issued_at: string;
+};
+
+export async function exportPeriod(periodId: number): Promise<ExportResult> {
+  const res = await fetch(`${API_BASE}/api/periods/${periodId}/export`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(detail?.detail ?? `PDF出力に失敗しました (${res.status})`, res.status);
+  }
+  return res.json();
+}
+
+export async function fetchDocuments(periodId: number): Promise<IssuedDocumentRow[]> {
+  const res = await fetch(`${API_BASE}/api/periods/${periodId}/documents`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`発行済み書類の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+export function documentDownloadUrl(documentId: number): string {
+  return `${PUBLIC_API_BASE}/api/documents/${documentId}/download`;
+}
+
+export function formatDocType(t: DocType): string {
+  switch (t) {
+    case "INVOICE":
+      return "請求書";
+    case "STATEMENT":
+      return "請求明細書";
+    case "BUNDLE_ZIP":
+      return "一括ZIP";
+  }
+}
+
+// ---------------------------------------------------------------------
 // F-03 リスト表
 // ---------------------------------------------------------------------
 

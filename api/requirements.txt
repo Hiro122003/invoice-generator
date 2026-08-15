@@ -9,6 +9,9 @@ python-multipart>=0.0.12
 # Excel取込
 openpyxl>=3.1
 
+# PDF出力（F-09）。HTML→PDF
+playwright>=1.48
+
 # テスト
 pytest>=8.3
 httpx>=0.28
