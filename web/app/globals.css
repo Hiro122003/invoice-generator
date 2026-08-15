@@ -658,3 +658,200 @@ tr.expand-row td {
 .rowlink:hover .label {
   color: var(--accent);
 }
+
+/* ==========================================================
+   フェーズ5: 請求書・明細書一覧・明細手修正
+   ========================================================== */
+
+/* ---- 請求書（P-06） ---- */
+.invoice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.invoice-card {
+  border: 1px solid var(--rule);
+  background: var(--surface);
+}
+
+.invoice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.tax-badge {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  margin-right: 12px;
+}
+
+.tax-badge.reduced {
+  border-color: var(--warn-fg);
+  color: var(--warn-fg);
+}
+
+.customer {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.invoice-totals {
+  display: flex;
+  gap: 20px;
+  margin: 0;
+}
+
+.invoice-totals dt {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  margin-bottom: 2px;
+}
+
+.invoice-totals dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+
+.invoice-totals .grand dd {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.invoice-card .scroll {
+  border: none;
+}
+
+.celllink {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.celllink:hover {
+  text-decoration: underline;
+}
+
+.tag.edited {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+}
+
+.warn {
+  color: var(--warn-fg);
+}
+
+/* ---- 明細書 詳細・編集（P-05） ---- */
+.lock-note {
+  color: var(--warn-fg);
+  font-weight: 600;
+}
+
+.paper-head,
+.paper-foot {
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  padding: 14px 20px;
+  margin-bottom: 16px;
+}
+
+.paper-head dl,
+.paper-foot dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 0;
+}
+
+.paper-head dt,
+.paper-foot dt {
+  font-size: 10.5px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--ink-soft);
+  margin-bottom: 3px;
+}
+
+.paper-head dd {
+  margin: 0;
+  font-size: 13.5px;
+}
+
+.paper-foot {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.paper-foot dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+}
+
+.paper-foot .grand dd {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.statement-table td.editable {
+  cursor: pointer;
+  position: relative;
+}
+
+.statement-table td.editable:hover {
+  background: var(--paper);
+}
+
+.statement-table td.cell-edited {
+  background: var(--accent-bg, var(--paper));
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.statement-table td.cell-edited::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.cell-input {
+  width: 100%;
+  border: 1px solid var(--accent);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  text-align: right;
+  padding: 3px 6px;
+}
+
+.cell-input:focus {
+  outline: none;
+}
+
+tr.row-edited {
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.btn.ghost.small {
+  padding: 3px 9px;
+  font-size: 11.5px;
+}

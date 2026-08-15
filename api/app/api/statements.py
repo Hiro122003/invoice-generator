@@ -13,15 +13,17 @@ invoice/invoice_statement の合計列には書き込まない。
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.models.base import BillingGroup, TaxCategory
 from app.schemas.statements import (
     GenerateResultOut,
     InvoiceOut,
     InvoiceStatementOut,
+    PeriodStatementRowOut,
     StatementDetailOut,
     StatementLineOut,
 )
@@ -146,6 +148,64 @@ def get_invoice(invoice_id: int, db: Session = Depends(get_db)) -> InvoiceOut:
     return _invoice_row_to_out(dict(row))
 
 
+# 単体の明細書・請求書の合計だけを取りたいとき用（例: F-05手修正の応答）。
+# LIST系のSQLとCEILの式を分けて持つと、片方だけ直して食い違う事故が
+# 起きるため、明細書1枚・請求書1件ぶんの計算はここに集約する。
+def compute_statement_totals(db: Session, statement_id: int) -> dict | None:
+    row = db.execute(
+        text(
+            """
+            SELECT s.id, s.invoice_id,
+                   COALESCE(SUM(bl.amount) FILTER (WHERE bl.is_billable), 0::numeric) AS total_ex_tax,
+                   CEIL(
+                       COALESCE(SUM(bl.amount) FILTER (WHERE bl.is_billable), 0::numeric) * v.tax_rate
+                   ) AS tax_amount
+            FROM invoice_statement s
+            JOIN invoice v ON v.id = s.invoice_id
+            LEFT JOIN billing_line bl ON bl.statement_id = s.id AND bl.deleted_at IS NULL
+            WHERE s.id = :statement_id
+            GROUP BY s.id, v.tax_rate
+            """
+        ),
+        {"statement_id": statement_id},
+    ).mappings().one_or_none()
+    if row is None:
+        return None
+    d = dict(row)
+    d["total_amount"] = d["total_ex_tax"] + d["tax_amount"]
+    return d
+
+
+def compute_invoice_totals(db: Session, invoice_id: int) -> dict | None:
+    row = db.execute(
+        text(
+            """
+            WITH line_totals AS (
+                SELECT s.id AS statement_id,
+                       COALESCE(SUM(bl.amount) FILTER (WHERE bl.is_billable), 0::numeric) AS total_ex_tax
+                FROM invoice_statement s
+                LEFT JOIN billing_line bl ON bl.statement_id = s.id AND bl.deleted_at IS NULL
+                WHERE s.invoice_id = :invoice_id
+                GROUP BY s.id
+            )
+            SELECT v.id,
+                   COALESCE((SELECT SUM(total_ex_tax) FROM line_totals), 0::numeric) AS total_ex_tax,
+                   CEIL(
+                       COALESCE((SELECT SUM(total_ex_tax) FROM line_totals), 0::numeric) * v.tax_rate
+                   ) AS tax_amount
+            FROM invoice v
+            WHERE v.id = :invoice_id
+            """
+        ),
+        {"invoice_id": invoice_id},
+    ).mappings().one_or_none()
+    if row is None:
+        return None
+    d = dict(row)
+    d["total_amount"] = d["total_ex_tax"] + d["tax_amount"]
+    return d
+
+
 # ---------------------------------------------------------------------
 # 請求明細書（契約 × 請求グループ）
 # ---------------------------------------------------------------------
@@ -200,6 +260,98 @@ def list_statements(invoice_id: int, db: Session = Depends(get_db)) -> list[Invo
     return [_statement_row_to_out(dict(r)) for r in rows]
 
 
+# ---------------------------------------------------------------------
+# P-04 請求明細書一覧（請求期間内の全請求書を横断）
+# ---------------------------------------------------------------------
+
+# format() で組み立ててから text() に渡す（プレースホルダは {client_clause} 等）。
+# TextClause を先に作ってから .format しない — 混乱のもとになるため生文字列のまま持つ。
+_PERIOD_STATEMENT_LIST_SQL_TEMPLATE = (
+    """
+    SELECT s.id, s.invoice_id, v.tax_category, s.contract_id, c.contract_no,
+           cl.name AS client_name, site.name AS site_name,
+           s.billing_group, s.sort_order,
+           COUNT(bl.id) AS line_count,
+           COUNT(bl.id) FILTER (
+               WHERE bl.quantity IS DISTINCT FROM bl.src_quantity
+                  OR bl.base_charge IS DISTINCT FROM bl.src_base_charge
+                  OR bl.unit_price IS DISTINCT FROM bl.src_unit_price
+                  OR bl.duration IS DISTINCT FROM bl.src_duration
+           ) AS edited_line_count,
+           COALESCE(SUM(bl.amount) FILTER (WHERE bl.is_billable), 0::numeric) AS total_ex_tax,
+           CEIL(
+               COALESCE(SUM(bl.amount) FILTER (WHERE bl.is_billable), 0::numeric) * v.tax_rate
+           ) AS tax_amount
+    FROM invoice_statement s
+    JOIN invoice v ON v.id = s.invoice_id
+    JOIN contract c ON c.id = s.contract_id
+    JOIN site ON site.id = c.site_id
+    JOIN client cl ON cl.id = site.client_id
+    LEFT JOIN billing_line bl ON bl.statement_id = s.id AND bl.deleted_at IS NULL
+    WHERE v.period_id = :period_id
+      AND ({client_clause})
+      AND ({tax_clause})
+      AND ({group_clause})
+    GROUP BY s.id, v.id, v.tax_category, v.tax_rate, c.contract_no, cl.name,
+             site.name, s.billing_group, s.sort_order
+    ORDER BY v.tax_category, s.sort_order
+    """
+)
+
+
+@router.get("/periods/{period_id}/statements", response_model=list[PeriodStatementRowOut])
+def list_period_statements(
+    period_id: int,
+    client: str | None = Query(None, description="得意先名（部分一致）"),
+    tax: str | None = Query(None, description="STANDARD または REDUCED"),
+    group: str | None = Query(None, description="EQUIPMENT または COUNTER"),
+    db: Session = Depends(get_db),
+) -> list[PeriodStatementRowOut]:
+    if tax is not None and tax not in TaxCategory.ALL:
+        raise HTTPException(422, f"tax は {TaxCategory.ALL} のいずれかで指定してください。")
+    if group is not None and group not in BillingGroup.ALL:
+        raise HTTPException(422, f"group は {BillingGroup.ALL} のいずれかで指定してください。")
+
+    bind: dict = {"period_id": period_id}
+    clauses = {"client_clause": "TRUE", "tax_clause": "TRUE", "group_clause": "TRUE"}
+    if client:
+        clauses["client_clause"] = "cl.name ILIKE :client"
+        bind["client"] = f"%{client}%"
+    if tax:
+        clauses["tax_clause"] = "v.tax_category = :tax"
+        bind["tax"] = tax
+    if group:
+        clauses["group_clause"] = "s.billing_group = :group"
+        bind["group"] = group
+
+    sql = text(_PERIOD_STATEMENT_LIST_SQL_TEMPLATE.format(**clauses))
+    rows = db.execute(sql, bind).mappings().all()
+
+    result = []
+    for r in rows:
+        d = dict(r)
+        result.append(
+            PeriodStatementRowOut(
+                id=d["id"],
+                invoice_id=d["invoice_id"],
+                tax_category=d["tax_category"],
+                contract_id=d["contract_id"],
+                contract_no=d["contract_no"],
+                client_name=d["client_name"],
+                site_name=d["site_name"],
+                billing_group=d["billing_group"],
+                sort_order=d["sort_order"],
+                line_count=d["line_count"],
+                edited_line_count=d["edited_line_count"],
+                is_edited=d["edited_line_count"] > 0,
+                total_ex_tax=d["total_ex_tax"],
+                tax_amount=d["tax_amount"],
+                total_amount=d["total_ex_tax"] + d["tax_amount"],
+            )
+        )
+    return result
+
+
 @router.get("/statements/{statement_id}", response_model=StatementDetailOut)
 def get_statement(statement_id: int, db: Session = Depends(get_db)) -> StatementDetailOut:
     header = db.execute(
@@ -208,6 +360,8 @@ def get_statement(statement_id: int, db: Session = Depends(get_db)) -> Statement
             SELECT s.id, s.invoice_id, s.contract_id, c.contract_no,
                    cl.name AS client_name, site.name AS site_name,
                    s.billing_group, s.sort_order,
+                   p.id AS period_id, p.status AS period_status,
+                   to_char(p.start_date, 'YYYY-MM') AS period_label,
                    COUNT(bl.id) AS line_count,
                    COALESCE(SUM(bl.amount) FILTER (WHERE bl.is_billable), 0::numeric) AS total_ex_tax,
                    CEIL(
@@ -215,12 +369,14 @@ def get_statement(statement_id: int, db: Session = Depends(get_db)) -> Statement
                    ) AS tax_amount
             FROM invoice_statement s
             JOIN invoice v ON v.id = s.invoice_id
+            JOIN billing_period p ON p.id = v.period_id
             JOIN contract c ON c.id = s.contract_id
             JOIN site ON site.id = c.site_id
             JOIN client cl ON cl.id = site.client_id
             LEFT JOIN billing_line bl ON bl.statement_id = s.id AND bl.deleted_at IS NULL
             WHERE s.id = :statement_id
-            GROUP BY s.id, v.tax_rate, c.contract_no, cl.name, site.name, s.billing_group, s.sort_order
+            GROUP BY s.id, v.tax_rate, c.contract_no, cl.name, site.name, s.billing_group,
+                     s.sort_order, p.id, p.status, p.start_date
             """
         ),
         {"statement_id": statement_id},
@@ -235,6 +391,7 @@ def get_statement(statement_id: int, db: Session = Depends(get_db)) -> Statement
             SELECT bl.id, i.code AS item_code, bl.item_name_snapshot AS item_name,
                    bl.delivery_date, bl.quantity, bl.base_charge, bl.unit_price,
                    bl.duration, bl.unit_price_type, bl.amount,
+                   bl.src_quantity, bl.src_base_charge, bl.src_unit_price, bl.src_duration,
                    (
                        bl.quantity IS DISTINCT FROM bl.src_quantity
                        OR bl.base_charge IS DISTINCT FROM bl.src_base_charge
@@ -250,8 +407,12 @@ def get_statement(statement_id: int, db: Session = Depends(get_db)) -> Statement
         {"statement_id": statement_id},
     ).mappings().all()
 
+    header_d = dict(header)
     return StatementDetailOut(
-        statement=_statement_row_to_out(dict(header)),
+        statement=_statement_row_to_out(header_d),
+        period_id=header_d["period_id"],
+        period_label=header_d["period_label"],
+        period_status=header_d["period_status"],
         lines=[
             StatementLineOut(
                 id=l["id"],
@@ -265,6 +426,10 @@ def get_statement(statement_id: int, db: Session = Depends(get_db)) -> Statement
                 unit_price_type=l["unit_price_type"],
                 amount=l["amount"],
                 is_edited=l["is_edited"],
+                src_quantity=l["src_quantity"],
+                src_base_charge=l["src_base_charge"],
+                src_unit_price=l["src_unit_price"],
+                src_duration=l["src_duration"],
             )
             for l in lines
         ],
