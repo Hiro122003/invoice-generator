@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import func, select
 
-from app.api.statements import _INVOICE_LIST_SQL, _STATEMENT_LIST_SQL
+from app.api.statements import _INVOICE_LIST_SQL, _STATEMENT_LIST_SQL, list_invoices
 from app.config import settings
 from app.models import AppUser, BillingGroup, Invoice, InvoiceStatement, TaxCategory
 from app.models.base import UserRole
@@ -137,3 +137,25 @@ class TestStatementAmountsSumToInvoice:
         ).mappings().all()
         sum_of_statement_taxes = sum(r["tax_amount"] for r in stmt_rows)
         assert sum_of_statement_taxes != EXPECTED["total_standard_tax"]
+
+
+class TestPeriodInvoiceListSummary:
+    """P-06一覧APIの全体合計（8%・10%をまたいだ合計）。
+
+    フロントで税抜同士を足し算させない（CLAUDE.md冒頭のルール）ため、
+    バックエンドがDecimalのまま合算して返している値を検証する。
+    """
+
+    def test_summary_sums_both_tax_categories(self, db, generated):
+        result = list_invoices(generated["period_id"], db)
+
+        assert len(result.items) == EXPECTED["invoices"]
+        assert result.summary.total_ex_tax == (
+            EXPECTED["total_standard_ex_tax"] + EXPECTED["total_reduced_ex_tax"]
+        )
+        assert result.summary.tax_amount == (
+            EXPECTED["total_standard_tax"] + EXPECTED["total_reduced_tax"]
+        )
+        assert result.summary.total_amount == (
+            result.summary.total_ex_tax + result.summary.tax_amount
+        )

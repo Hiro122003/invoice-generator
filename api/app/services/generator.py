@@ -76,6 +76,15 @@ def generate(db: Session, period_id: int) -> GenerationSummary:
             f"{period.label} は確定済みです。生成し直すには確定解除してください。"
         )
 
+    # 同一period_idへの同時生成をシリアライズする。トランザクション終了
+    # （コミット/ロールバック）で自動解放されるアドバイザリロックなので、
+    # 明示的な解放処理は不要。P-06は画面を開くたびに自動生成するため、
+    # 同じタブの二重リクエスト（例: React StrictModeの開発時二重effect）や
+    # 複数タブからの同時アクセスがあり得る。ロックなしだと後続が
+    # invoice の一意制約（period_id, customer_id, tax_category）に
+    # ぶつかって500になる（money-auditで実際に再現した）。
+    db.execute(text("SELECT pg_advisory_xact_lock(:period_id)"), {"period_id": period_id})
+
     _wipe_statements_and_invoices(db, period_id)
 
     # 契約番号順・グループ順に取得することで、後段のループがそのまま
