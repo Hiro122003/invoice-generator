@@ -1,4 +1,4 @@
-"""請求期間の一覧。取込の起点になる画面（P-01）のデータ源。"""
+"""請求期間の一覧・確定/確定解除（F-08）。取込の起点になる画面（P-01）のデータ源。"""
 
 from __future__ import annotations
 
@@ -6,8 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db import get_db
+from app.models import AppUser
+from app.schemas.confirmation import (
+    ConfirmResultOut,
+    UnconfirmIn,
+    UnconfirmResultOut,
+)
 from app.schemas.imports import PeriodOut
+from app.services import confirmation
 
 router = APIRouter(prefix="/api/periods", tags=["periods"])
 
@@ -20,6 +28,7 @@ _LIST_SQL = text(
            p.end_date,
            p.status,
            p.updated_at,
+           p.confirmed_at,
            COALESCE(agg.line_count, 0)     AS line_count,
            COALESCE(agg.contract_count, 0) AS contract_count,
            agg.total_ex_tax
@@ -53,6 +62,7 @@ def list_periods(db: Session = Depends(get_db)) -> list[PeriodOut]:
             contract_count=r["contract_count"],
             total_ex_tax=r["total_ex_tax"],
             updated_at=r["updated_at"],
+            confirmed_at=r["confirmed_at"],
         )
         for r in rows
     ]
@@ -73,5 +83,55 @@ def get_period(period_id: int, db: Session = Depends(get_db)) -> PeriodOut:
                 contract_count=r["contract_count"],
                 total_ex_tax=r["total_ex_tax"],
                 updated_at=r["updated_at"],
+                confirmed_at=r["confirmed_at"],
             )
     raise HTTPException(status_code=404, detail="請求期間が見つかりません。")
+
+
+@router.post("/{period_id}/confirm", response_model=ConfirmResultOut)
+def confirm_period(
+    period_id: int,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+) -> ConfirmResultOut:
+    try:
+        summary = confirmation.confirm_period(db, period_id, user)
+    except confirmation.PeriodNotFoundError as e:
+        db.rollback()
+        raise HTTPException(404, str(e)) from e
+    except confirmation.AlreadyConfirmedError as e:
+        db.rollback()
+        raise HTTPException(409, str(e)) from e
+    except confirmation.NothingToConfirmError as e:
+        db.rollback()
+        raise HTTPException(422, str(e)) from e
+
+    db.commit()
+    return ConfirmResultOut(
+        period_id=summary.period_id,
+        invoices=summary.invoices,
+        revision=summary.revision,
+        confirmed_at=summary.confirmed_at,
+    )
+
+
+@router.post("/{period_id}/unconfirm", response_model=UnconfirmResultOut)
+def unconfirm_period(
+    period_id: int,
+    body: UnconfirmIn,
+    db: Session = Depends(get_db),
+    user: AppUser = Depends(get_current_user),
+) -> UnconfirmResultOut:
+    try:
+        summary = confirmation.unconfirm_period(db, period_id, user, body.reason)
+    except confirmation.PeriodNotFoundError as e:
+        db.rollback()
+        raise HTTPException(404, str(e)) from e
+    except confirmation.NotConfirmedError as e:
+        db.rollback()
+        raise HTTPException(409, str(e)) from e
+
+    db.commit()
+    return UnconfirmResultOut(
+        period_id=summary.period_id, from_revision=summary.from_revision
+    )

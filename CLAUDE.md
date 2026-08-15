@@ -470,11 +470,54 @@ StrictModeの二重発火を必ず疑う。フロント側のガード（cancell
 AbortController）だけに頼らず、**サーバー側でも同時実行を安全に
 さばけるようにする**（アドバイザリロックやON CONFLICT等）。
 
+### フェーズ6: F-08 確定・締め で出来ていること
+
+- `POST /api/periods/{id}/confirm` — 期間内の全請求書・明細書について
+  既存の `compute_invoice_totals`/`compute_statement_totals`（F-05で
+  作った集計）をそのまま呼び、結果を `total_ex_tax`/`tax_amount`/
+  `total_amount` へスナップショットとして書き込む。新しい税額計算式は
+  増やしていない。`billing_period.status` を `CONFIRMED` にする
+- `POST /api/periods/{id}/unconfirm` — `reason` 必須。スナップショットを
+  全部NULLに戻し「常に集計クエリで算出」の状態へ戻す。
+  `period_unlock_log` に記録
+- 版数（`invoice.revision`）: 初回確定は1のまま、`invoice.confirmed_at`
+  が非NULL（＝過去に確定歴あり）なら再確定のたびに+1。確定解除では
+  `confirmed_at` をクリアしない（次回確定時の判定・履歴表示に使う）
+- 画面: P-06に確定・確定解除UI（`ConfirmBar`）。確定済みなら自動生成
+  （generate()）自体をスキップし、「生成し直す」ボタンと明細不要
+  プレビューも隠す
+
+**教訓（money-auditが発見・重大）**: `confirm_period`/`unconfirm_period`
+と `PATCH /api/lines/{id}`（手修正）が、どちらも「`period.status`を
+読む→判断→書く」という check-then-act で、互いを排他する仕組みが
+なかった。`generator.generate()` は同種の事故（invoiceの一意制約違反）
+を理由に既に `pg_advisory_xact_lock(period_id)` を入れていたのに、
+確定処理と手修正には入っていなかった。money-auditが2セッションを
+意図的にインターリーブさせて実際に再現: 手修正が「確定済みでない」を
+確認した直後に別セッションで確定が完走し、その後手修正がそのまま
+書き込みに成功した。**「確定済み期間は編集不可」の前提が、タイミング
+次第で崩れていた**（画面のGET系APIは元々スナップショット列を読まず
+常にライブ集計する設計のため、この不整合がそのまま画面に出てしまう）。
+
+`confirm_period`/`unconfirm_period`（`api/app/services/confirmation.py`）、
+`_check_not_locked`（`api/app/api/lines.py`）、`run_import`
+（`api/app/services/importer.py`）の4箇所すべてに、状態を読む前に
+同じ `pg_advisory_xact_lock(period_id)` を追加。これで
+generate/import/PATCH/confirm/unconfirmが同一期間について自然に
+直列化される。修正後、PATCHと確定を10回連続で意図的に競合させ、
+最終的な確定スナップショットが最後のPATCH後の値と厳密に一致することを
+実データで確認ずみ（税抜2,583,740円 + 数量差分109,461円 = 2,693,201円、
+1円のずれもなし）。
+
+**教訓**: 「状態を確認してから書き込む」処理を追加するときは、既存の
+類似処理（このプロジェクトでは `generator.generate()`）が
+同時実行対策を持っていないか必ず確認し、同じロックキーで揃える。
+片方だけ対策しても、対策していない方から抜けられる。
+
 ### フェーズ6で作るもの
 
 | | |
 |---|---|
-| F-08 | 確定・締め。請求期間を確定してロック。解除は理由を記録し、再確定で版数+1 |
 | F-09 | PDF出力。会社ごと分割・ZIP一括。発行済みPDFは版数ごとに保管し削除しない |
 | F-11 | 過去請求の閲覧。過去月の請求書・明細書を参照、発行済みPDFの再取得 |
 | P-08 | PDF出力 `/periods/[id]/export` |
