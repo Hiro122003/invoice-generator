@@ -9,7 +9,7 @@
  */
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   PUBLIC_API_BASE,
@@ -118,7 +118,16 @@ export default function ContractListPage() {
   const params = useParams<{ id: string }>();
   const periodId = Number(params.id);
 
-  const [filters, setFilters] = useState<ContractFilters>(EMPTY_FILTERS);
+  // P-06（請求書）の発行前プレビューから「リスト表で調整する」で
+  // 遷移してきたとき、?skip_statement=true を初期フィルタとして
+  // 引き継ぐ。それ以外の起動経路では通常どおり空フィルタ。
+  const searchParams = useSearchParams();
+  const [filters, setFilters] = useState<ContractFilters>(() => {
+    const initialSkip = searchParams.get("skip_statement");
+    return initialSkip === "true" || initialSkip === "false"
+      ? { ...EMPTY_FILTERS, skip_statement: initialSkip }
+      : EMPTY_FILTERS;
+  });
   const [data, setData] = useState<ContractListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -200,6 +209,9 @@ export default function ContractListPage() {
           <a href={exportUrl} className="btn">
             CSV出力
           </a>
+          <Link href={`/periods/${periodId}/invoices`} className="btn">
+            請求書ページへ
+          </Link>
           <Link href="/periods" className="btn">
             請求期間一覧へ
           </Link>

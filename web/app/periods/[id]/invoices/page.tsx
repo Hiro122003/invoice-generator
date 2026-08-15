@@ -13,8 +13,11 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
+  type ContractFilters,
+  type ContractListResponse,
   type InvoiceRow,
   type StatementSummaryRow,
+  fetchContracts,
   fetchInvoiceStatements,
   fetchInvoices,
   formatYen,
@@ -25,6 +28,69 @@ const TAX_LABEL: Record<InvoiceRow["tax_category"], string> = {
   STANDARD: "10%",
   REDUCED: "8%",
 };
+
+// リスト表（P-03）で「明細不要」に絞り込むためのフィルタ。他の条件は
+// 表示の絞り込みにしか使わないため生成には関係なく、ここでは使わない。
+const SKIP_ONLY_FILTERS: ContractFilters = {
+  client: "",
+  site: "",
+  contract_no: "",
+  tax: "",
+  group: "",
+  skip_statement: "true",
+  min_amount: "",
+  max_amount: "",
+};
+
+function SkipStatementPreview({ periodId }: { periodId: number }) {
+  const [data, setData] = useState<ContractListResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchContracts(periodId, SKIP_ONLY_FILTERS)
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : "取得に失敗しました");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [periodId]);
+
+  if (error || !data || data.summary.count === 0) return null;
+
+  return (
+    <div className="preview-panel">
+      <div className="preview-head">
+        <span>
+          明細不要により <strong className="preview-count">{data.summary.count}</strong> 件
+          （税抜 {formatYen(data.summary.total_ex_tax)} 円）が発行対象から除外されます。
+        </span>
+        <div className="actions">
+          <button className="btn ghost small" onClick={() => setExpanded((v) => !v)}>
+            {expanded ? "閉じる" : "内訳を見る"}
+          </button>
+          <Link href={`/periods/${periodId}/contracts?skip_statement=true`} className="btn ghost small">
+            リスト表で調整する
+          </Link>
+        </div>
+      </div>
+      {expanded && (
+        <ul>
+          {data.items.map((c) => (
+            <li key={c.id}>
+              <span className="mono">{c.contract_no}</span> {c.client_name} / {c.site_name}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 function InvoiceCard({ invoice }: { invoice: InvoiceRow }) {
   const [statements, setStatements] = useState<StatementSummaryRow[] | null>(null);
@@ -152,11 +218,16 @@ export default function InvoicesPage() {
           <button className="btn primary" onClick={handleGenerate} disabled={generating}>
             {generating ? "生成しています…" : "明細書・請求書を生成する"}
           </button>
+          <Link href={`/periods/${periodId}/contracts`} className="btn">
+            リスト表へ
+          </Link>
           <Link href="/periods" className="btn">
             請求期間一覧へ
           </Link>
         </div>
       </header>
+
+      <SkipStatementPreview periodId={periodId} />
 
       {error && <p className="err">{error}</p>}
 
