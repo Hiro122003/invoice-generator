@@ -730,6 +730,11 @@ tr.expand-row td {
 }
 
 .invoice-totals dd {
+  /* 基底の `dd { display: flex }`（キー・バリュー横並び用の共通リセット）
+     を打ち消す。flexのままだとtext-align: rightが効かず、内容が
+     justify-content既定のflex-startで左寄せされ、右寄せのdtと
+     縦の位置が揃わなくなる。 */
+  display: block;
   margin: 0;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
@@ -795,6 +800,8 @@ tr.expand-row td {
 }
 
 .paper-head dd {
+  /* 基底の `dd { display: flex }` を打ち消す（.invoice-totals dd と同じ理由）。 */
+  display: block;
   margin: 0;
   font-size: 13.5px;
 }
@@ -814,6 +821,8 @@ tr.expand-row td {
 }
 
 .paper-foot dd {
+  /* 基底の `dd { display: flex }` を打ち消す（.invoice-totals dd と同じ理由）。 */
+  display: block;
   margin: 0;
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
