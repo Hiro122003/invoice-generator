@@ -13,6 +13,8 @@ invoice/invoice_statement の合計列には書き込まない。
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -23,6 +25,8 @@ from app.schemas.statements import (
     GenerateResultOut,
     InvoiceOut,
     InvoiceStatementOut,
+    PeriodInvoiceListOut,
+    PeriodInvoiceSummaryOut,
     PeriodStatementRowOut,
     StatementDetailOut,
     StatementLineOut,
@@ -111,10 +115,20 @@ def _invoice_row_to_out(r: dict) -> InvoiceOut:
     )
 
 
-@router.get("/periods/{period_id}/invoices", response_model=list[InvoiceOut])
-def list_invoices(period_id: int, db: Session = Depends(get_db)) -> list[InvoiceOut]:
+@router.get("/periods/{period_id}/invoices", response_model=PeriodInvoiceListOut)
+def list_invoices(period_id: int, db: Session = Depends(get_db)) -> PeriodInvoiceListOut:
     rows = db.execute(_INVOICE_LIST_SQL, {"period_id": period_id}).mappings().all()
-    return [_invoice_row_to_out(dict(r)) for r in rows]
+    items = [_invoice_row_to_out(dict(r)) for r in rows]
+    # 8%・10%の請求書をまたいだ全体合計。フロントで税抜同士を
+    # 足し算させない（CLAUDE.md冒頭のルール）ため、ここでDecimalのまま
+    # 合算して返す。個々の請求書のCEIL済み消費税を単純合計するだけで、
+    # ここで新たにCEILし直すわけではない。
+    summary = PeriodInvoiceSummaryOut(
+        total_ex_tax=sum((i.total_ex_tax for i in items), Decimal("0")),
+        tax_amount=sum((i.tax_amount for i in items), Decimal("0")),
+        total_amount=sum((i.total_amount for i in items), Decimal("0")),
+    )
+    return PeriodInvoiceListOut(items=items, summary=summary)
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceOut)

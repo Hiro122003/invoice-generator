@@ -895,17 +895,3 @@ tr.row-edited {
   font-size: 12.5px;
   color: var(--ink-soft);
 }
-
-/* 生成後にフラグを変えたため、この生成結果が古くなっている行 */
-
-.stale-note {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border: 1px solid var(--warn-fg);
-  padding: 8px 12px;
-  margin: 0 0 10px;
-}
-
-tr.row-stale {
-  background: var(--ng-bg);
-}

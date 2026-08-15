@@ -25,6 +25,20 @@ export const API_BASE =
 export const PUBLIC_API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
+/**
+ * HTTPステータスを保持するエラー。呼び出し側が「409(確定済みだから
+ * 何もしない)」のような分岐をエラーメッセージの文字列一致ではなく
+ * ステータスコードで判定できるようにする。
+ */
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export type Period = {
   id: number;
   start_date: string;
@@ -251,6 +265,17 @@ export type InvoiceRow = {
   total_amount: string | number;
 };
 
+export type PeriodInvoiceSummary = {
+  total_ex_tax: string | number;
+  tax_amount: string | number;
+  total_amount: string | number;
+};
+
+export type PeriodInvoiceListResponse = {
+  items: InvoiceRow[];
+  summary: PeriodInvoiceSummary;
+};
+
 export type StatementSummaryRow = {
   id: number;
   invoice_id: number;
@@ -298,18 +323,22 @@ export type StatementDetail = {
   period_status: "DRAFT" | "CONFIRMED";
 };
 
-export async function generatePeriod(periodId: number): Promise<GenerateResult> {
+export async function generatePeriod(
+  periodId: number,
+  signal?: AbortSignal
+): Promise<GenerateResult> {
   const res = await fetch(`${API_BASE}/api/periods/${periodId}/generate`, {
     method: "POST",
+    signal,
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => null);
-    throw new Error(detail?.detail ?? `生成に失敗しました (${res.status})`);
+    throw new ApiError(detail?.detail ?? `生成に失敗しました (${res.status})`, res.status);
   }
   return res.json();
 }
 
-export async function fetchInvoices(periodId: number): Promise<InvoiceRow[]> {
+export async function fetchInvoices(periodId: number): Promise<PeriodInvoiceListResponse> {
   const res = await fetch(`${API_BASE}/api/periods/${periodId}/invoices`, {
     cache: "no-store",
   });

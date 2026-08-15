@@ -3,19 +3,26 @@
 /**
  * P-06 請求書。
  *
- * 税率ごとに1通（10%・8%）。まだ生成されていなければここに
- * 「生成する」ボタンを置く（F-04/F-06のトリガー）。
- * 各請求書の下に明細書を一覧し、行クリックで対応する明細書（P-05）へ
- * 遷移する（VBAのダブルクリック機能の正統進化）。
+ * 税率ごとに1通（10%・8%）。各請求書の下に明細書を一覧し、行クリックで
+ * 対応する明細書（P-05）へ遷移する（VBAのダブルクリック機能の正統進化）。
+ *
+ * 明細不要（skip_statement）は生成時のスナップショットにしか効かない
+ * （リスト表で切り替えただけでは既存の請求書は変わらない）ため、この
+ * 画面を開くたびに未確定の請求期間なら自動で生成し直す。「生成済みの
+ * 一覧が最新の設定を反映しているか」を利用者が気にする必要をなくし、
+ * 常にリスト表の現在の明細不要設定がそのまま反映された状態で開く。
+ * 確定済み期間（読み取り専用）は自動生成の対象外（409を静かに無視）。
  */
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  ApiError,
   type ContractFilters,
   type ContractListResponse,
   type InvoiceRow,
+  type PeriodInvoiceSummary,
   type StatementSummaryRow,
   fetchContracts,
   fetchInvoiceStatements,
@@ -58,7 +65,7 @@ function SkipStatementPreview({
       <div className="preview-head">
         <span>
           明細不要により <strong className="preview-count">{data.summary.count}</strong> 件
-          （税抜 {formatYen(data.summary.total_ex_tax)} 円）が発行対象から除外されます。
+          （税抜 {formatYen(data.summary.total_ex_tax)} 円）が除外されています。
         </span>
         <div className="actions">
           <button className="btn ghost small" onClick={() => setExpanded((v) => !v)}>
@@ -82,13 +89,7 @@ function SkipStatementPreview({
   );
 }
 
-function InvoiceCard({
-  invoice,
-  excludedContractIds,
-}: {
-  invoice: InvoiceRow;
-  excludedContractIds: Set<number>;
-}) {
+function InvoiceCard({ invoice }: { invoice: InvoiceRow }) {
   const [statements, setStatements] = useState<StatementSummaryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,20 +106,6 @@ function InvoiceCard({
       cancelled = true;
     };
   }, [invoice.id]);
-
-  // 生成後に明細不要のフラグが変わっていて、この生成結果がまだ
-  // 最新の設定を反映していない契約（本来なら除外されているはずなのに
-  // 残っている）を検出する。生成は「押したときのスナップショット」
-  // なので、フラグを変えただけでは自動的には反映されない。
-  const staleContractNos = statements
-    ? [
-        ...new Set(
-          statements
-            .filter((s) => excludedContractIds.has(s.contract_id))
-            .map((s) => s.contract_no)
-        ),
-      ]
-    : [];
 
   return (
     <section className="invoice-card">
@@ -148,14 +135,6 @@ function InvoiceCard({
       {error && <p className="err small">{error}</p>}
       {!error && !statements && <p className="muted small">読み込んでいます…</p>}
 
-      {staleContractNos.length > 0 && (
-        <p className="note warn stale-note">
-          ⚠ 契約 {staleContractNos.join("・")} は現在「明細不要」に設定されていますが、
-          この生成結果にはまだ含まれています（生成後に設定を変更したため）。
-          リスト表へ戻って「明細書・請求書を生成する」を押し直してください。
-        </p>
-      )}
-
       {statements && (
         <div className="scroll">
           <table>
@@ -169,27 +148,23 @@ function InvoiceCard({
               </tr>
             </thead>
             <tbody>
-              {statements.map((s) => {
-                const stale = excludedContractIds.has(s.contract_id);
-                return (
-                  <tr key={s.id} className={stale ? "row-stale" : ""}>
-                    <td className="mono">
-                      <Link href={`/statements/${s.id}`} className="celllink">
-                        {s.contract_no}
-                      </Link>
-                      {stale && <span className="tag ng">要再生成</span>}
-                    </td>
-                    <td>{s.site_name}</td>
-                    <td>
-                      <span className={`tag ${s.billing_group === "COUNTER" ? "counter" : ""}`}>
-                        {s.billing_group === "COUNTER" ? "カウンタ" : "備品"}
-                      </span>
-                    </td>
-                    <td className="num">{formatYen(s.total_ex_tax)}</td>
-                    <td className="num strong">{formatYen(s.total_amount)}</td>
-                  </tr>
-                );
-              })}
+              {statements.map((s) => (
+                <tr key={s.id}>
+                  <td className="mono">
+                    <Link href={`/statements/${s.id}`} className="celllink">
+                      {s.contract_no}
+                    </Link>
+                  </td>
+                  <td>{s.site_name}</td>
+                  <td>
+                    <span className={`tag ${s.billing_group === "COUNTER" ? "counter" : ""}`}>
+                      {s.billing_group === "COUNTER" ? "カウンタ" : "備品"}
+                    </span>
+                  </td>
+                  <td className="num">{formatYen(s.total_ex_tax)}</td>
+                  <td className="num strong">{formatYen(s.total_amount)}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -203,13 +178,18 @@ export default function InvoicesPage() {
   const periodId = Number(params.id);
 
   const [invoices, setInvoices] = useState<InvoiceRow[] | null>(null);
+  const [summary, setSummary] = useState<PeriodInvoiceSummary | null>(null);
   const [excluded, setExcluded] = useState<ContractListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(true);
   const [generating, setGenerating] = useState(false);
 
   const load = useCallback(() => {
     fetchInvoices(periodId)
-      .then(setInvoices)
+      .then((d) => {
+        setInvoices(d.items);
+        setSummary(d.summary);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "取得に失敗しました"));
   }, [periodId]);
 
@@ -217,19 +197,47 @@ export default function InvoicesPage() {
     fetchContracts(periodId, SKIP_ONLY_FILTERS)
       .then(setExcluded)
       .catch(() => {
-        // 除外プレビュー・古さの警告は補助情報。取得に失敗しても本体は止めない。
+        // 除外プレビューは補助情報。取得に失敗しても本体は止めない。
       });
   }, [periodId]);
 
+  // 画面を開くたびに、リスト表の現在の明細不要設定を反映した状態へ
+  // 自動で生成し直す。確定済み期間（409）と請求対象なし（422）は
+  // 想定内の応答なので、エラー表示せずそのまま一覧の取得へ進む。
+  //
+  // AbortControllerで実リクエストごと打ち切る。React StrictModeは開発時
+  // このeffectをmount→cleanup→mountと二重発火させるため、素朴に
+  // フラグだけで結果を無視すると、リクエスト自体は2本とも生成APIへ
+  // 飛んでしまう。generate()は洗い替え（invoiceの一意制約に一度に
+  // 1本しか書けない）なので、同時に2本走ると片方が500で落ち、
+  // しかもそのエラー表示が成功後も消えずに残る不具合をmoney-auditで
+  // 実際に確認した。cleanupでabortすれば、StrictModeの1本目は
+  // レスポンスを待たずに打ち切られ、実際に完走するのは1本だけになる。
   useEffect(() => {
-    load();
-    loadExcluded();
-  }, [load, loadExcluded]);
-
-  const excludedContractIds = useMemo(
-    () => new Set((excluded?.items ?? []).map((c) => c.id)),
-    [excluded]
-  );
+    const controller = new AbortController();
+    setError(null);
+    (async () => {
+      try {
+        await generatePeriod(periodId, controller.signal);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+        const expected = e instanceof ApiError && (e.status === 409 || e.status === 422);
+        if (!expected) {
+          setError(e instanceof Error ? e.message : "生成に失敗しました");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setSyncing(false);
+          load();
+          loadExcluded();
+        }
+      }
+    })();
+    return () => {
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodId]);
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -250,11 +258,14 @@ export default function InvoicesPage() {
       <header className="page-head">
         <div>
           <h1>請求書</h1>
-          <p className="lede">税率ごとに1通。明細書は行クリックで開けます。</p>
+          <p className="lede">
+            税率ごとに1通。明細書は行クリックで開けます。開くたびにリスト表の
+            明細不要設定を反映して自動更新します。
+          </p>
         </div>
         <div className="actions">
           <button className="btn primary" onClick={handleGenerate} disabled={generating}>
-            {generating ? "生成しています…" : "明細書・請求書を生成する"}
+            {generating ? "生成しています…" : "生成し直す"}
           </button>
           <Link href={`/periods/${periodId}/contracts`} className="btn">
             リスト表へ
@@ -269,22 +280,39 @@ export default function InvoicesPage() {
 
       {error && <p className="err">{error}</p>}
 
-      {invoices && invoices.length === 0 && (
+      {syncing && <p className="muted">最新の設定を反映しています…</p>}
+
+      {!syncing && invoices && invoices.length === 0 && (
         <div className="empty">
-          <p>まだ請求書が生成されていません。</p>
+          <p>請求対象の明細がありません。</p>
           <p className="sub">
-            上の「明細書・請求書を生成する」ボタンを押すと、取り込んだ明細から
-            契約×請求グループ単位で明細書を作り、税率ごとに請求書へ積み上げます。
+            取り込んだ明細が0件か、すべて明細不要・値引で除外されています。
+            リスト表で設定を確認してください。
           </p>
         </div>
       )}
 
-      {invoices && invoices.length > 0 && (
-        <div className="invoice-list">
-          {invoices.map((inv) => (
-            <InvoiceCard key={inv.id} invoice={inv} excludedContractIds={excludedContractIds} />
-          ))}
-        </div>
+      {!syncing && invoices && invoices.length > 0 && (
+        <>
+          {summary && (
+            <div className="summarybar">
+              <span>
+                税抜合計 <strong>{formatYen(summary.total_ex_tax)}</strong> 円
+              </span>
+              <span>
+                消費税合計 <strong>{formatYen(summary.tax_amount)}</strong> 円
+              </span>
+              <span>
+                合計 <strong>{formatYen(summary.total_amount)}</strong> 円
+              </span>
+            </div>
+          )}
+          <div className="invoice-list">
+            {invoices.map((inv) => (
+              <InvoiceCard key={inv.id} invoice={inv} />
+            ))}
+          </div>
+        </>
       )}
     </main>
   );

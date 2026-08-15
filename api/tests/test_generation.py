@@ -321,6 +321,28 @@ class TestStatementListApi:
         assert 0 not in actual_ids
 
 
+class TestPeriodInvoiceListSummary:
+    """P-06一覧APIの全体合計（8%・10%をまたいだ合計）。
+
+    フロントで税抜同士を足し算させない（CLAUDE.md冒頭のルール）ため、
+    バックエンドがDecimalのまま合算して返す値をfixtures非依存で検証する。
+    """
+
+    def test_summary_sums_standard_and_reduced(self, db, branch_graph):
+        from app.api.statements import list_invoices
+
+        generator.generate(db, branch_graph["period"].id)
+        result = list_invoices(branch_graph["period"].id, db)
+
+        assert len(result.items) == 2
+        # 10%: X(1000) + Y(2000+300) + Z(200) = 3500、消費税 CEIL(3500*0.1)=350
+        # 8%: W(500)、消費税 CEIL(500*0.08)=40
+        # 合計: 税抜 3500+500=4000、消費税 350+40=390
+        assert result.summary.total_ex_tax == Decimal("4000.00")
+        assert result.summary.tax_amount == Decimal("390")
+        assert result.summary.total_amount == Decimal("4390.00")
+
+
 class TestSkipStatement:
     """明細不要（contract.skip_statement）フラグが生成に反映されること。
 

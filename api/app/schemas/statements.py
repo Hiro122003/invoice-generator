@@ -31,6 +31,24 @@ class InvoiceOut(BaseModel):
     total_amount: Decimal
 
 
+class PeriodInvoiceSummaryOut(BaseModel):
+    """P-06 請求書一覧の全体合計（8%・10%の請求書をまたいだ合計）。
+
+    フロントで税抜同士を足し算しない（CLAUDE.md冒頭のルール）ための
+    バックエンド側の合算値。個々の請求書のCEIL済み消費税をそのまま
+    合計するだけで、ここで新たにCEILし直すわけではない。
+    """
+
+    total_ex_tax: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+
+
+class PeriodInvoiceListOut(BaseModel):
+    items: list[InvoiceOut]
+    summary: PeriodInvoiceSummaryOut
+
+
 class InvoiceStatementOut(BaseModel):
     """請求明細書。1件 = 契約 × 請求グループ。"""
 
