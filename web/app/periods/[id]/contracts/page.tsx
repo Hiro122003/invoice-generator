@@ -257,6 +257,9 @@ export default function ContractListPage() {
           <a href={exportUrl} className="btn">
             CSV出力
           </a>
+          <Link href={`/periods/${periodId}/statements`} className="btn">
+            請求明細書一覧へ
+          </Link>
           <Link href={`/periods/${periodId}/invoices`} className="btn">
             請求書ページへ
           </Link>

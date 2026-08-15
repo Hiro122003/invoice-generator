@@ -58,9 +58,14 @@ export default function PeriodStatementsPage() {
           <h1>請求明細書一覧</h1>
           <p className="lede">会社・税率・請求グループで絞り込み。行クリックで詳細・編集へ。</p>
         </div>
-        <Link href={`/periods/${periodId}/invoices`} className="btn">
-          請求書へ
-        </Link>
+        <div className="actions">
+          <Link href={`/periods/${periodId}/contracts`} className="btn">
+            リスト表へ
+          </Link>
+          <Link href={`/periods/${periodId}/invoices`} className="btn">
+            請求書へ
+          </Link>
+        </div>
       </header>
 
       <div className="filterbar">
