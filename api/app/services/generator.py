@@ -80,6 +80,12 @@ def generate(db: Session, period_id: int) -> GenerationSummary:
 
     # 契約番号順・グループ順に取得することで、後段のループがそのまま
     # 明細書の並び順（sort_order）になる。
+    #
+    # skip_statement が立っている契約は明細書・請求書のどちらにも出さない
+    # （「この現場は明細書を出さない」という継続的な取り決め。design.md
+    # 「洗い替えの範囲」参照）。この行を対象から外すだけでよく、請求書・
+    # 明細書の合計は billing_line.statement_id の割り当てから逆算する
+    # ため、他の集計クエリを個別に直す必要はない。
     rows = db.execute(
         text(
             f"""
@@ -92,6 +98,7 @@ def generate(db: Session, period_id: int) -> GenerationSummary:
             WHERE bl.period_id = :period_id
               AND bl.deleted_at IS NULL
               AND bl.is_billable
+              AND NOT c.skip_statement
             ORDER BY c.contract_no, {_GROUP_ORDER}
             """
         ),
