@@ -36,6 +36,10 @@ const EMPTY_FILTERS: ContractFilters = {
   max_amount: "",
 };
 
+// 一括解除ボタンの対象を数えるときに使う。表示中の絞り込み条件とは
+// 独立に「この請求期間で明細不要になっている契約」を常に指す。
+const SKIP_ONLY_FILTERS: ContractFilters = { ...EMPTY_FILTERS, skip_statement: "true" };
+
 function ContractLines({
   periodId,
   contractId,
@@ -133,7 +137,23 @@ export default function ContractListPage() {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [pending, setPending] = useState<Set<number>>(new Set());
+  const [skipCount, setSkipCount] = useState<number | null>(null);
+  const [bulkClearing, setBulkClearing] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 表示中の絞り込みとは別に「一括解除」ボタンの件数バッジ用に、
+  // この請求期間全体での明細不要件数を持っておく。
+  const loadSkipCount = useCallback(() => {
+    fetchContracts(periodId, SKIP_ONLY_FILTERS)
+      .then((d) => setSkipCount(d.summary.count))
+      .catch(() => {
+        // 件数バッジは補助情報。取得に失敗しても画面本体は止めない。
+      });
+  }, [periodId]);
+
+  useEffect(() => {
+    loadSkipCount();
+  }, [loadSkipCount]);
 
   const load = useCallback(
     (f: ContractFilters) => {
@@ -178,6 +198,9 @@ export default function ContractListPage() {
             }
           : d
       );
+      if (row.skip_statement !== updated.skip_statement) {
+        setSkipCount((c) => (c === null ? c : c + (updated.skip_statement ? 1 : -1)));
+      }
     } catch (e) {
       alert(e instanceof Error ? e.message : "更新に失敗しました");
     } finally {
@@ -186,6 +209,31 @@ export default function ContractListPage() {
         next.delete(row.id);
         return next;
       });
+    }
+  };
+
+  const handleBulkClear = async () => {
+    if (!skipCount) return;
+    if (!confirm(`明細不要になっている ${skipCount} 件をすべて解除しますか？`)) return;
+
+    setBulkClearing(true);
+    try {
+      // 表示中の絞り込みに関係なく、この請求期間で明細不要な契約を
+      // 取り直してから全件解除する（見えていない行の取りこぼしを防ぐ）。
+      const targets = await fetchContracts(periodId, SKIP_ONLY_FILTERS);
+      const results = await Promise.allSettled(
+        targets.items.map((c) => updateSkipStatement(c.id, false))
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) {
+        alert(`${failed}件は解除に失敗しました。もう一度お試しください。`);
+      }
+      load(filters);
+      loadSkipCount();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "一括解除に失敗しました");
+    } finally {
+      setBulkClearing(false);
     }
   };
 
@@ -268,6 +316,11 @@ export default function ContractListPage() {
           <option value="true">明細不要のみ</option>
           <option value="false">明細不要でない</option>
         </select>
+        {!!skipCount && (
+          <button className="btn ghost" onClick={handleBulkClear} disabled={bulkClearing}>
+            {bulkClearing ? "解除しています…" : `明細不要を一括解除（${skipCount}件）`}
+          </button>
+        )}
         <input
           type="number"
           placeholder="金額下限"
