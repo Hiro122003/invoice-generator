@@ -708,8 +708,17 @@ tr.expand-row td {
 
 .invoice-totals {
   display: flex;
-  gap: 20px;
+  gap: 28px;
   margin: 0;
+}
+
+.invoice-totals > div {
+  min-width: 92px;
+  text-align: right;
+}
+
+.invoice-totals .grand {
+  min-width: 120px;
 }
 
 .invoice-totals dt {
@@ -793,6 +802,15 @@ tr.expand-row td {
 .paper-foot {
   margin-top: 12px;
   margin-bottom: 0;
+}
+
+.paper-foot dl > div {
+  min-width: 100px;
+  text-align: right;
+}
+
+.paper-foot .grand {
+  min-width: 130px;
 }
 
 .paper-foot dd {
