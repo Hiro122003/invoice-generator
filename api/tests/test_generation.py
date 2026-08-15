@@ -321,6 +321,57 @@ class TestStatementListApi:
         assert 0 not in actual_ids
 
 
+class TestSkipStatement:
+    """明細不要（contract.skip_statement）フラグが生成に反映されること。
+
+    P-03で立てたフラグが生成ロジックに繋がっていなかった欠陥
+    （明細不要にしても普通に請求されてしまう）を固定する回帰テスト。
+    """
+
+    def test_skip_statement_contract_gets_no_statement(self, db, branch_graph):
+        branch_graph["contracts"]["X"].skip_statement = True
+        db.flush()
+
+        generator.generate(db, branch_graph["period"].id)
+
+        stmts = db.execute(
+            select(InvoiceStatement).where(
+                InvoiceStatement.contract_id == branch_graph["contracts"]["X"].id
+            )
+        ).scalars().all()
+        assert stmts == []
+
+    def test_skip_statement_line_is_not_assigned(self, db, branch_graph):
+        branch_graph["contracts"]["X"].skip_statement = True
+        db.flush()
+
+        generator.generate(db, branch_graph["period"].id)
+
+        line = db.execute(
+            select(BillingLine)
+            .join(RentalOrder, RentalOrder.id == BillingLine.order_id)
+            .where(RentalOrder.contract_id == branch_graph["contracts"]["X"].id)
+        ).scalar_one()
+        assert line.statement_id is None
+
+    def test_other_contracts_unaffected(self, db, branch_graph):
+        """契約Xだけ明細不要にしても、他契約の生成件数は変わらない。"""
+        branch_graph["contracts"]["X"].skip_statement = True
+        db.flush()
+
+        summary = generator.generate(db, branch_graph["period"].id)
+        # 全体(5明細書)から契約X分(1明細書)が抜ける
+        assert summary.statements == 4
+        assert summary.assigned_lines == 4
+
+        stmts_z = db.execute(
+            select(InvoiceStatement).where(
+                InvoiceStatement.contract_id == branch_graph["contracts"]["Z"].id
+            )
+        ).scalars().all()
+        assert len(stmts_z) == 1
+
+
 class TestGuards:
     def test_locked_period_cannot_regenerate(self, db, branch_graph):
         branch_graph["period"].status = PeriodStatus.CONFIRMED
