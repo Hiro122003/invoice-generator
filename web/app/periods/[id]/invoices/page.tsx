@@ -11,7 +11,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   type ContractFilters,
   type ContractListResponse,
@@ -42,26 +42,16 @@ const SKIP_ONLY_FILTERS: ContractFilters = {
   max_amount: "",
 };
 
-function SkipStatementPreview({ periodId }: { periodId: number }) {
-  const [data, setData] = useState<ContractListResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function SkipStatementPreview({
+  periodId,
+  data,
+}: {
+  periodId: number;
+  data: ContractListResponse | null;
+}) {
   const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchContracts(periodId, SKIP_ONLY_FILTERS)
-      .then((d) => {
-        if (!cancelled) setData(d);
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "取得に失敗しました");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [periodId]);
-
-  if (error || !data || data.summary.count === 0) return null;
+  if (!data || data.summary.count === 0) return null;
 
   return (
     <div className="preview-panel">
@@ -92,7 +82,13 @@ function SkipStatementPreview({ periodId }: { periodId: number }) {
   );
 }
 
-function InvoiceCard({ invoice }: { invoice: InvoiceRow }) {
+function InvoiceCard({
+  invoice,
+  excludedContractIds,
+}: {
+  invoice: InvoiceRow;
+  excludedContractIds: Set<number>;
+}) {
   const [statements, setStatements] = useState<StatementSummaryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +105,20 @@ function InvoiceCard({ invoice }: { invoice: InvoiceRow }) {
       cancelled = true;
     };
   }, [invoice.id]);
+
+  // 生成後に明細不要のフラグが変わっていて、この生成結果がまだ
+  // 最新の設定を反映していない契約（本来なら除外されているはずなのに
+  // 残っている）を検出する。生成は「押したときのスナップショット」
+  // なので、フラグを変えただけでは自動的には反映されない。
+  const staleContractNos = statements
+    ? [
+        ...new Set(
+          statements
+            .filter((s) => excludedContractIds.has(s.contract_id))
+            .map((s) => s.contract_no)
+        ),
+      ]
+    : [];
 
   return (
     <section className="invoice-card">
@@ -138,6 +148,14 @@ function InvoiceCard({ invoice }: { invoice: InvoiceRow }) {
       {error && <p className="err small">{error}</p>}
       {!error && !statements && <p className="muted small">読み込んでいます…</p>}
 
+      {staleContractNos.length > 0 && (
+        <p className="note warn stale-note">
+          ⚠ 契約 {staleContractNos.join("・")} は現在「明細不要」に設定されていますが、
+          この生成結果にはまだ含まれています（生成後に設定を変更したため）。
+          リスト表へ戻って「明細書・請求書を生成する」を押し直してください。
+        </p>
+      )}
+
       {statements && (
         <div className="scroll">
           <table>
@@ -151,23 +169,27 @@ function InvoiceCard({ invoice }: { invoice: InvoiceRow }) {
               </tr>
             </thead>
             <tbody>
-              {statements.map((s) => (
-                <tr key={s.id}>
-                  <td className="mono">
-                    <Link href={`/statements/${s.id}`} className="celllink">
-                      {s.contract_no}
-                    </Link>
-                  </td>
-                  <td>{s.site_name}</td>
-                  <td>
-                    <span className={`tag ${s.billing_group === "COUNTER" ? "counter" : ""}`}>
-                      {s.billing_group === "COUNTER" ? "カウンタ" : "備品"}
-                    </span>
-                  </td>
-                  <td className="num">{formatYen(s.total_ex_tax)}</td>
-                  <td className="num strong">{formatYen(s.total_amount)}</td>
-                </tr>
-              ))}
+              {statements.map((s) => {
+                const stale = excludedContractIds.has(s.contract_id);
+                return (
+                  <tr key={s.id} className={stale ? "row-stale" : ""}>
+                    <td className="mono">
+                      <Link href={`/statements/${s.id}`} className="celllink">
+                        {s.contract_no}
+                      </Link>
+                      {stale && <span className="tag ng">要再生成</span>}
+                    </td>
+                    <td>{s.site_name}</td>
+                    <td>
+                      <span className={`tag ${s.billing_group === "COUNTER" ? "counter" : ""}`}>
+                        {s.billing_group === "COUNTER" ? "カウンタ" : "備品"}
+                      </span>
+                    </td>
+                    <td className="num">{formatYen(s.total_ex_tax)}</td>
+                    <td className="num strong">{formatYen(s.total_amount)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -181,6 +203,7 @@ export default function InvoicesPage() {
   const periodId = Number(params.id);
 
   const [invoices, setInvoices] = useState<InvoiceRow[] | null>(null);
+  const [excluded, setExcluded] = useState<ContractListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
 
@@ -190,9 +213,23 @@ export default function InvoicesPage() {
       .catch((e) => setError(e instanceof Error ? e.message : "取得に失敗しました"));
   }, [periodId]);
 
+  const loadExcluded = useCallback(() => {
+    fetchContracts(periodId, SKIP_ONLY_FILTERS)
+      .then(setExcluded)
+      .catch(() => {
+        // 除外プレビュー・古さの警告は補助情報。取得に失敗しても本体は止めない。
+      });
+  }, [periodId]);
+
   useEffect(() => {
     load();
-  }, [load]);
+    loadExcluded();
+  }, [load, loadExcluded]);
+
+  const excludedContractIds = useMemo(
+    () => new Set((excluded?.items ?? []).map((c) => c.id)),
+    [excluded]
+  );
 
   const handleGenerate = async () => {
     setGenerating(true);
@@ -200,6 +237,7 @@ export default function InvoicesPage() {
     try {
       await generatePeriod(periodId);
       load();
+      loadExcluded();
     } catch (e) {
       setError(e instanceof Error ? e.message : "生成に失敗しました");
     } finally {
@@ -227,7 +265,7 @@ export default function InvoicesPage() {
         </div>
       </header>
 
-      <SkipStatementPreview periodId={periodId} />
+      <SkipStatementPreview periodId={periodId} data={excluded} />
 
       {error && <p className="err">{error}</p>}
 
@@ -244,7 +282,7 @@ export default function InvoicesPage() {
       {invoices && invoices.length > 0 && (
         <div className="invoice-list">
           {invoices.map((inv) => (
-            <InvoiceCard key={inv.id} invoice={inv} />
+            <InvoiceCard key={inv.id} invoice={inv} excludedContractIds={excludedContractIds} />
           ))}
         </div>
       )}
