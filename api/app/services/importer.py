@@ -15,7 +15,7 @@ from __future__ import annotations
 import datetime as dt
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -238,6 +238,13 @@ def run_import(
         raise ValidationFailedError("請求期間が特定できません。")
 
     period = _get_or_create_period(db, result.period_start, result.period_end)
+
+    # generator.generate() / confirmation.confirm_period 等と同じ
+    # period_id のアドバイザリロックを取ってから確定状態を読む・洗い替える。
+    # ロックなしだと確定処理とのcheck-then-actの隙間ができてしまう
+    # （money-auditでconfirm/PATCH間の同種の事故を再現ずみ）。
+    db.execute(text("SELECT pg_advisory_xact_lock(:period_id)"), {"period_id": period.id})
+
     if period.status == PeriodStatus.CONFIRMED:
         raise PeriodLockedError(
             f"{period.label} は確定済みです。再投入するには確定解除が必要です。"

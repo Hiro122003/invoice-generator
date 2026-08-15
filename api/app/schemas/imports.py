@@ -76,3 +76,6 @@ class PeriodOut(BaseModel):
     contract_count: int
     total_ex_tax: Decimal | None = None
     updated_at: dt.datetime | None = None
+    # F-08。確定済みなら確定日時が入る。確定解除後もクリアしない
+    # （BillingPeriod側の仕様。「最後に確定したのはいつか」の履歴として残す）。
+    confirmed_at: dt.datetime | None = None

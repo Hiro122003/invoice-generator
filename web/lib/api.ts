@@ -49,6 +49,9 @@ export type Period = {
   contract_count: number;
   total_ex_tax: string | number | null;
   updated_at: string | null;
+  // F-08。確定済みなら確定日時が入る。確定解除後もクリアされない
+  // （「最後に確定したのはいつか」の履歴として残す設計）。
+  confirmed_at: string | null;
 };
 
 export type Issue = {
@@ -112,9 +115,74 @@ export function formatDate(value: string | null): string {
   return value.slice(0, 10).replace(/-/g, "/");
 }
 
+export function formatDateTime(value: string | null): string {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export async function fetchPeriods(): Promise<Period[]> {
   const res = await fetch(`${API_BASE}/api/periods`, { cache: "no-store" });
   if (!res.ok) throw new Error(`請求期間の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+export async function fetchPeriod(periodId: number): Promise<Period> {
+  const res = await fetch(`${API_BASE}/api/periods/${periodId}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`請求期間の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------------
+// F-08 確定・締め
+// ---------------------------------------------------------------------
+
+export type ConfirmResult = {
+  period_id: number;
+  invoices: number;
+  revision: number;
+  confirmed_at: string;
+};
+
+export type UnconfirmResult = {
+  period_id: number;
+  from_revision: number;
+};
+
+export async function confirmPeriod(periodId: number): Promise<ConfirmResult> {
+  const res = await fetch(`${API_BASE}/api/periods/${periodId}/confirm`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(detail?.detail ?? `確定に失敗しました (${res.status})`, res.status);
+  }
+  return res.json();
+}
+
+export async function unconfirmPeriod(
+  periodId: number,
+  reason: string
+): Promise<UnconfirmResult> {
+  const res = await fetch(`${API_BASE}/api/periods/${periodId}/unconfirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new ApiError(
+      detail?.detail ?? `確定解除に失敗しました (${res.status})`,
+      res.status
+    );
+  }
   return res.json();
 }
 

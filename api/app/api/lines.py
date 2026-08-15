@@ -13,7 +13,7 @@ PATCH は1リクエストで明細行・明細書・請求書の3階層の金額
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -73,6 +73,14 @@ def _get_line_or_404(db: Session, line_id: int) -> BillingLine:
 
 
 def _check_not_locked(db: Session, line: BillingLine) -> None:
+    # generator.generate() / confirmation.confirm_period 等と同じ
+    # period_id のアドバイザリロックを取ってから確定状態を読む。
+    # ロックなしだと「読む→この間に確定される→そのまま書き込む」という
+    # check-then-act の隙間に確定処理が割り込み、確定済み期間の金額が
+    # 確定後に動いてしまう事故が実際に起きる（money-auditで再現ずみ）。
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:period_id)"), {"period_id": line.period_id}
+    )
     period = db.get(BillingPeriod, line.period_id)
     if period is not None and period.status == PeriodStatus.CONFIRMED:
         raise HTTPException(

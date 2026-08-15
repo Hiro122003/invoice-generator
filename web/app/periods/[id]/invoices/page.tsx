@@ -22,13 +22,18 @@ import {
   type ContractFilters,
   type ContractListResponse,
   type InvoiceRow,
+  type Period,
   type PeriodInvoiceSummary,
   type StatementSummaryRow,
+  confirmPeriod,
   fetchContracts,
   fetchInvoiceStatements,
   fetchInvoices,
+  fetchPeriod,
+  formatDateTime,
   formatYen,
   generatePeriod,
+  unconfirmPeriod,
 } from "@/lib/api";
 
 const TAX_LABEL: Record<InvoiceRow["tax_category"], string> = {
@@ -85,6 +90,109 @@ function SkipStatementPreview({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+function ConfirmBar({
+  period,
+  revision,
+  onChanged,
+}: {
+  period: Period;
+  revision: number | null;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleConfirm = async () => {
+    if (
+      !confirm(
+        `${period.label} を確定します。確定後は明細の手修正・再生成ができなくなります。よろしいですか？`
+      )
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      await confirmPeriod(period.id);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "確定に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUnconfirm = async () => {
+    if (!reason.trim()) {
+      setError("確定解除の理由を入力してください。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await unconfirmPeriod(period.id, reason.trim());
+      setUnlocking(false);
+      setReason("");
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "確定解除に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (period.status === "CONFIRMED") {
+    return (
+      <div className="confirm-bar locked">
+        <div className="confirm-status">
+          <span className="lock-note">🔒 確定済み{revision ? `（第${revision}版）` : ""}</span>
+          <span className="muted small">確定日時 {formatDateTime(period.confirmed_at)}</span>
+        </div>
+        {!unlocking ? (
+          <button className="btn ghost small" onClick={() => setUnlocking(true)} disabled={busy}>
+            確定解除する
+          </button>
+        ) : (
+          <div className="unlock-form">
+            <input
+              type="text"
+              placeholder="確定解除の理由（必須）"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              disabled={busy}
+            />
+            <button className="btn small" onClick={handleUnconfirm} disabled={busy}>
+              {busy ? "実行しています…" : "実行"}
+            </button>
+            <button
+              className="btn ghost small"
+              onClick={() => {
+                setUnlocking(false);
+                setReason("");
+                setError(null);
+              }}
+              disabled={busy}
+            >
+              キャンセル
+            </button>
+          </div>
+        )}
+        {error && <p className="err small">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="confirm-bar">
+      <button className="btn primary" onClick={handleConfirm} disabled={busy}>
+        {busy ? "確定しています…" : "確定する"}
+      </button>
+      {error && <p className="err small">{error}</p>}
     </div>
   );
 }
@@ -180,6 +288,7 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<InvoiceRow[] | null>(null);
   const [summary, setSummary] = useState<PeriodInvoiceSummary | null>(null);
   const [excluded, setExcluded] = useState<ContractListResponse | null>(null);
+  const [period, setPeriod] = useState<Period | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -201,9 +310,18 @@ export default function InvoicesPage() {
       });
   }, [periodId]);
 
+  const loadPeriod = useCallback(() => {
+    fetchPeriod(periodId)
+      .then(setPeriod)
+      .catch(() => {
+        // 確定バーの表示に使うだけの補助情報。取得に失敗しても本体は止めない。
+      });
+  }, [periodId]);
+
   // 画面を開くたびに、リスト表の現在の明細不要設定を反映した状態へ
-  // 自動で生成し直す。確定済み期間（409）と請求対象なし（422）は
-  // 想定内の応答なので、エラー表示せずそのまま一覧の取得へ進む。
+  // 自動で生成し直す。確定済み期間は洗い替え自体が意味を持たない
+  // （手修正も再生成もできない。金額は確定時のスナップショットが正）
+  // ため、先に期間の状態を見てから確定済みなら generate() 自体を呼ばない。
   //
   // AbortControllerで実リクエストごと打ち切る。React StrictModeは開発時
   // このeffectをmount→cleanup→mountと二重発火させるため、素朴に
@@ -218,7 +336,12 @@ export default function InvoicesPage() {
     setError(null);
     (async () => {
       try {
-        await generatePeriod(periodId, controller.signal);
+        const p = await fetchPeriod(periodId);
+        if (controller.signal.aborted) return;
+        setPeriod(p);
+        if (p.status !== "CONFIRMED") {
+          await generatePeriod(periodId, controller.signal);
+        }
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         const expected = e instanceof ApiError && (e.status === 409 || e.status === 422);
@@ -264,9 +387,11 @@ export default function InvoicesPage() {
           </p>
         </div>
         <div className="actions">
-          <button className="btn primary" onClick={handleGenerate} disabled={generating}>
-            {generating ? "生成しています…" : "生成し直す"}
-          </button>
+          {period?.status !== "CONFIRMED" && (
+            <button className="btn primary" onClick={handleGenerate} disabled={generating}>
+              {generating ? "生成しています…" : "生成し直す"}
+            </button>
+          )}
           <Link href={`/periods/${periodId}/contracts`} className="btn">
             リスト表へ
           </Link>
@@ -276,7 +401,21 @@ export default function InvoicesPage() {
         </div>
       </header>
 
-      <SkipStatementPreview periodId={periodId} data={excluded} />
+      {period && (
+        <ConfirmBar
+          period={period}
+          revision={invoices?.[0]?.revision ?? null}
+          onChanged={() => {
+            loadPeriod();
+            load();
+            loadExcluded();
+          }}
+        />
+      )}
+
+      {period?.status !== "CONFIRMED" && (
+        <SkipStatementPreview periodId={periodId} data={excluded} />
+      )}
 
       {error && <p className="err">{error}</p>}
 
