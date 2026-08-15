@@ -60,8 +60,42 @@ class StatementLineOut(BaseModel):
     unit_price_type: str
     amount: Decimal
     is_edited: bool
+    # 手修正セルのホバー表示（「元: 3」）用。取込時の値をそのまま返す
+    src_quantity: Decimal | None
+    src_base_charge: Decimal | None
+    src_unit_price: Decimal | None
+    src_duration: Decimal | None
 
 
 class StatementDetailOut(BaseModel):
     statement: InvoiceStatementOut
     lines: list[StatementLineOut]
+    # 確定済み期間かどうかを画面側で判定するために持たせる。
+    # 全セル読み取り専用にする・ロックアイコンを出す、の分岐に使う。
+    period_id: int
+    period_label: str
+    period_status: str
+
+
+class PeriodStatementRowOut(BaseModel):
+    """P-04 請求明細書一覧の1行。請求期間内の全請求書を横断する。
+
+    is_edited は edited_line_count > 0 から変換時に設定する
+    （Pydanticのフィールドはプロパティではなく実値として持たせる）。
+    """
+
+    id: int
+    invoice_id: int
+    tax_category: str
+    contract_id: int
+    contract_no: str
+    client_name: str
+    site_name: str
+    billing_group: str
+    sort_order: int | None
+    line_count: int
+    edited_line_count: int
+    is_edited: bool
+    total_ex_tax: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal

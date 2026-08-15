@@ -221,3 +221,224 @@ const UNIT_PRICE_TYPE_LABEL: Record<BillingLineRow["unit_price_type"], string> =
 export function formatUnitPriceType(t: BillingLineRow["unit_price_type"]): string {
   return UNIT_PRICE_TYPE_LABEL[t] ?? t;
 }
+
+// ---------------------------------------------------------------------
+// F-04/F-06 明細書・請求書の生成と閲覧
+// ---------------------------------------------------------------------
+
+export type TaxCategory = "STANDARD" | "REDUCED";
+export type BillingGroupType = "EQUIPMENT" | "COUNTER";
+
+export type GenerateResult = {
+  period_id: number;
+  invoices: number;
+  statements: number;
+  assigned_lines: number;
+};
+
+export type InvoiceRow = {
+  id: number;
+  period_id: number;
+  customer_id: number;
+  customer_name: string;
+  tax_category: TaxCategory;
+  tax_rate: string | number;
+  revision: number;
+  status: string;
+  statement_count: number;
+  total_ex_tax: string | number;
+  tax_amount: string | number;
+  total_amount: string | number;
+};
+
+export type StatementSummaryRow = {
+  id: number;
+  invoice_id: number;
+  contract_id: number;
+  contract_no: string;
+  client_name: string;
+  site_name: string;
+  billing_group: BillingGroupType;
+  sort_order: number | null;
+  line_count: number;
+  total_ex_tax: string | number;
+  tax_amount: string | number;
+  total_amount: string | number;
+};
+
+export type PeriodStatementRow = StatementSummaryRow & {
+  tax_category: TaxCategory;
+  edited_line_count: number;
+  is_edited: boolean;
+};
+
+export type StatementLine = {
+  id: number;
+  item_code: string;
+  item_name: string;
+  delivery_date: string | null;
+  quantity: string | number;
+  base_charge: string | number | null;
+  unit_price: string | number | null;
+  duration: string | number | null;
+  unit_price_type: "MONTHLY" | "DAILY" | "SALE";
+  amount: string | number;
+  is_edited: boolean;
+  src_quantity: string | number | null;
+  src_base_charge: string | number | null;
+  src_unit_price: string | number | null;
+  src_duration: string | number | null;
+};
+
+export type StatementDetail = {
+  statement: StatementSummaryRow;
+  lines: StatementLine[];
+  period_id: number;
+  period_label: string;
+  period_status: "DRAFT" | "CONFIRMED";
+};
+
+export async function generatePeriod(periodId: number): Promise<GenerateResult> {
+  const res = await fetch(`${API_BASE}/api/periods/${periodId}/generate`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `生成に失敗しました (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function fetchInvoices(periodId: number): Promise<InvoiceRow[]> {
+  const res = await fetch(`${API_BASE}/api/periods/${periodId}/invoices`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`請求書の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+export async function fetchInvoiceStatements(invoiceId: number): Promise<StatementSummaryRow[]> {
+  const res = await fetch(`${API_BASE}/api/invoices/${invoiceId}/statements`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`明細書の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+export type PeriodStatementFilters = {
+  client?: string;
+  tax?: TaxCategory | "";
+  group?: BillingGroupType | "";
+};
+
+export async function fetchPeriodStatements(
+  periodId: number,
+  filters: PeriodStatementFilters
+): Promise<PeriodStatementRow[]> {
+  const params = new URLSearchParams();
+  if (filters.client) params.set("client", filters.client);
+  if (filters.tax) params.set("tax", filters.tax);
+  if (filters.group) params.set("group", filters.group);
+  const qs = params.toString();
+  const res = await fetch(
+    `${API_BASE}/api/periods/${periodId}/statements${qs ? `?${qs}` : ""}`,
+    { cache: "no-store" }
+  );
+  if (!res.ok) throw new Error(`明細書一覧の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+export async function fetchStatementDetail(statementId: number): Promise<StatementDetail> {
+  const res = await fetch(`${API_BASE}/api/statements/${statementId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`明細書の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+// ---------------------------------------------------------------------
+// F-05 明細手修正 / F-10 修正履歴
+// ---------------------------------------------------------------------
+
+export type EditableField = "quantity" | "base_charge" | "unit_price" | "duration";
+
+export type LineEditResult = {
+  line: {
+    id: number;
+    quantity: string | number;
+    base_charge: string | number | null;
+    unit_price: string | number | null;
+    duration: string | number | null;
+    unit_price_type: "MONTHLY" | "DAILY" | "SALE";
+    amount: string | number;
+    is_edited: boolean;
+    is_billable: boolean;
+  };
+  statement: {
+    id: number;
+    invoice_id: number;
+    total_ex_tax: string | number;
+    tax_amount: string | number;
+    total_amount: string | number;
+  } | null;
+  invoice: {
+    id: number;
+    total_ex_tax: string | number;
+    tax_amount: string | number;
+    total_amount: string | number;
+  } | null;
+};
+
+export async function patchLine(
+  lineId: number,
+  // quantity 以外（base_charge/unit_price/duration）は空欄に戻せるため null も許容する。
+  // quantity を null にした場合はサーバー側が422で拒否する。
+  changes: Partial<Record<EditableField, number | null>>,
+  reason?: string
+): Promise<LineEditResult> {
+  const res = await fetch(`${API_BASE}/api/lines/${lineId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...changes, reason }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `更新に失敗しました (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function resetLine(lineId: number): Promise<LineEditResult> {
+  const res = await fetch(`${API_BASE}/api/lines/${lineId}/reset`, { method: "POST" });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => null);
+    throw new Error(detail?.detail ?? `取消に失敗しました (${res.status})`);
+  }
+  return res.json();
+}
+
+export type LineHistoryEntry = {
+  field: EditableField;
+  old_value: string | number | null;
+  new_value: string | number | null;
+  edited_by_name: string;
+  edited_at: string;
+  reason: string | null;
+};
+
+export async function fetchLineHistory(lineId: number): Promise<LineHistoryEntry[]> {
+  const res = await fetch(`${API_BASE}/api/lines/${lineId}/history`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`履歴の取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+const FIELD_LABEL: Record<EditableField, string> = {
+  quantity: "数量",
+  base_charge: "基本料",
+  unit_price: "単価",
+  duration: "日数/月数",
+};
+
+export function formatFieldLabel(f: EditableField): string {
+  return FIELD_LABEL[f] ?? f;
+}

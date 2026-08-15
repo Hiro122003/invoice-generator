@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import contracts, health, imports, periods, statements
+from app.api import contracts, health, imports, lines, periods, statements
 from app.config import settings
 
 app = FastAPI(
@@ -28,3 +28,4 @@ app.include_router(periods.router)
 app.include_router(imports.router)
 app.include_router(contracts.router)
 app.include_router(statements.router)
+app.include_router(lines.router)
