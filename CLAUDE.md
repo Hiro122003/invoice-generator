@@ -266,7 +266,7 @@ git diff --cached       # 特に Excel・PDF・.env が入っていないか
 
 ## 現在地
 
-**フェーズ6（PDF・確定）に着手する段階。** フェーズ1〜5は完了・main にマージ済み。
+**フェーズ6（PDF・確定）の主要部分が完了。** フェーズ1〜5は完了・main にマージ済み。
 
 | # | フェーズ | 状態 |
 |---|---|---|
@@ -275,8 +275,8 @@ git diff --cached       # 特に Excel・PDF・.env が入っていないか
 | 3 | リスト表（F-03） | **完了**（PR #4） |
 | 4 | 生成ロジック（F-04 / F-06） | **完了**（PR #5） |
 | 5 | 手修正（F-05 / F-10） | **完了**（PR #6） |
-| 6 | PDF・確定（F-08 / F-09 / F-11） | これから |
-| 7 | チェック機能（F-07） | — |
+| 6 | PDF・確定（F-08 / F-09 / F-11） | F-08・F-09は完了。F-11は既存画面（P-04/05/06が任意の期間で動く・確定済みは自動で読み取り専用）とP-10（発行済みPDF再取得）の組み合わせで実質達成。専用の新規画面は作っていない |
+| 7 | チェック機能（F-07） | これから |
 
 フェーズ4完了時に `/acceptance-check` の受け入れ基準を検証ずみ（全項目一致）。
 
@@ -514,20 +514,44 @@ generate/import/PATCH/confirm/unconfirmが同一期間について自然に
 同時実行対策を持っていないか必ず確認し、同じロックキーで揃える。
 片方だけ対策しても、対策していない方から抜けられる。
 
-### フェーズ6で作るもの
+### フェーズ6: F-09 PDF出力 で出来ていること
 
-| | |
-|---|---|
-| F-09 | PDF出力。会社ごと分割・ZIP一括。発行済みPDFは版数ごとに保管し削除しない |
-| F-11 | 過去請求の閲覧。過去月の請求書・明細書を参照、発行済みPDFの再取得 |
-| P-08 | PDF出力 `/periods/[id]/export` |
-| P-10 | 発行済み書類 `/periods/[id]/documents` |
+- Playwright（headless Chromium）でHTML→PDF。VBAの「44行オフセット」
+  計算（`docs/vba-analysis.md` 6章の問題#1）は完全に消滅し、
+  `page-break-inside`相当のページ単位のHTMLセクションに置き換わった。
+  APIコンテナに`playwright install --with-deps chromium`が必要
+  （`api/Dockerfile`）。日本語フォントはこの依存インストールで
+  IPAGothicが一緒に入るため追加設定は不要だった
+- `POST /api/periods/{id}/export` — 請求書・請求明細書PDF（税率ごと）と
+  それらをまとめたZIPを1回で作成。`storage_dir`（`docker-compose.yml`で
+  `./storage:/storage`にマウント済み、フェーズ1から用意されていた）に
+  保存し、`issued_document`へ記録（フェーズ1から存在したが未使用だった
+  テーブルをここで初めて使う）。ファイル名は
+  `2025-03_請求書_10%_rev1.pdf`のように版数を含める
+- `GET /api/periods/{id}/documents` / `GET /api/documents/{id}/download`
+  — 発行済み一覧・再ダウンロード。削除しない（洗い替え対象外）
+- 画面: P-08 `/periods/[id]/export`（出力＋直近の一覧）、
+  P-10 `/periods/[id]/documents`（全件一覧・再ダウンロード）
+- 金額はPDF側で一切計算しない。既存の`compute_invoice_totals`/
+  `_STATEMENT_LIST_SQL`（F-05で作った集計）をそのまま埋め込むだけ
 
-完了条件は現行PDFと同等のレイアウトで出力でき、版数管理ができること。
-PDF生成は openpyxl ではなく Playwright（HTML → PDF）。VBAの
-「44行オフセット」計算はここで完全に消滅し、`page-break-inside: avoid`
-等のCSSに置き換わる（`docs/vba-analysis.md` 6章の問題#1）。
+**教訓（money-auditが発見・重大）**: `export_period()`にも
+`pg_advisory_xact_lock`が抜けていた。確定・PATCH・generate・importには
+既に入れていたのに、export だけ対策漏れ。未確定期間はexport中もPATCHで
+の手修正が同時に走りうる設計（design.mdの「試し刷り」は未確定期間でも
+出力可）ため、1回の出力の中で「請求書ヘッダの合計」「明細書サマリ行」
+「明細書自身のページ」がそれぞれ別のSQL文（＝別スナップショット）を
+見てしまい、同一PDF内で数字が食い違う経路があった。同じロックキーを
+追加して直列化。**「状態を確認してから書き込む/読む」処理を追加したら、
+既存の類似処理全部に同じ対策が入っているか横並びで確認する**
+（このプロジェクトで3回目の同種の指摘）。
 
-確定時に `invoice` / `invoice_statement` の合計列へスナップショットを
-書き込む（それまでは集計クエリのみ）。`issued_document` テーブルは
-フェーズ1から存在するが未使用。ここで初めて使う。
+**教訓（money-auditが発見）**: PDF側の金額整形（`_yen()`）が
+Pythonの既定の丸め（`f"{d:,.0f}"` は ROUND_HALF_EVEN、銀行丸め）に
+委ねてしまい、画面側（`web/lib/api.ts`のformatYen、JSのtoLocaleStringは
+半分を切り上げ側へ丸める）と丸め方向がずれるケースを実測で発見
+（1234.50円がPDF側"1,234"・画面側"1,235"）。通常のExcel由来データは
+円未満の端数を持たないため気づきにくいが、F-05の手修正で単価に小数を
+入れると実際にリーチ可能。`_yen()`をROUND_HALF_UPで明示的に丸め、
+画面側と揃えた。**「ここでは計算しない」と書いたコードでも、表示用の
+桁丸めは実質的な計算であり、既定値に丸め方式を委ねない。**

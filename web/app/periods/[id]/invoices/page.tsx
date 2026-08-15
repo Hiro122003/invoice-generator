@@ -395,6 +395,9 @@ export default function InvoicesPage() {
           <Link href={`/periods/${periodId}/contracts`} className="btn">
             リスト表へ
           </Link>
+          <Link href={`/periods/${periodId}/export`} className="btn">
+            PDF出力へ
+          </Link>
           <Link href="/periods" className="btn">
             請求期間一覧へ
           </Link>
