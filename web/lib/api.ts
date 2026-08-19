@@ -594,6 +594,73 @@ export async function fetchLineHistory(lineId: number): Promise<LineHistoryEntry
   return res.json();
 }
 
+// ---------------------------------------------------------------------
+// F-07 発行前チェック
+// ---------------------------------------------------------------------
+
+export type ValidationCategory =
+  | "MISSING_STATEMENT"
+  | "ZERO_AMOUNT"
+  | "OUT_OF_PERIOD"
+  | "NEW_CONTRACT"
+  | "VANISHED_CONTRACT"
+  | "AMOUNT_CHANGED";
+
+export type ValidationSeverity = "HIGH" | "MEDIUM" | "INFO";
+
+export type ValidationIssue = {
+  category: ValidationCategory;
+  severity: ValidationSeverity;
+  message: string;
+  contract_id: number | null;
+  contract_no: string | null;
+  client_name: string | null;
+  site_name: string | null;
+  item_code: string | null;
+  item_name: string | null;
+  amount: string | number | null;
+  previous_amount: string | number | null;
+};
+
+export type ValidationResult = {
+  period_id: number;
+  previous_period_id: number | null;
+  previous_period_label: string | null;
+  summary: { high: number; medium: number; info: number };
+  issues: ValidationIssue[];
+};
+
+export async function fetchValidation(periodId: number): Promise<ValidationResult> {
+  const res = await fetch(`${API_BASE}/api/periods/${periodId}/validate`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`発行前チェックの取得に失敗しました (${res.status})`);
+  return res.json();
+}
+
+const VALIDATION_CATEGORY_LABEL: Record<ValidationCategory, string> = {
+  MISSING_STATEMENT: "請求漏れ",
+  ZERO_AMOUNT: "金額0円",
+  OUT_OF_PERIOD: "期間外",
+  NEW_CONTRACT: "新規契約",
+  VANISHED_CONTRACT: "消滅契約",
+  AMOUNT_CHANGED: "金額変動",
+};
+
+export function formatValidationCategory(c: ValidationCategory): string {
+  return VALIDATION_CATEGORY_LABEL[c] ?? c;
+}
+
+const VALIDATION_SEVERITY_LABEL: Record<ValidationSeverity, string> = {
+  HIGH: "重要",
+  MEDIUM: "注意",
+  INFO: "情報",
+};
+
+export function formatValidationSeverity(s: ValidationSeverity): string {
+  return VALIDATION_SEVERITY_LABEL[s] ?? s;
+}
+
 const FIELD_LABEL: Record<EditableField, string> = {
   quantity: "数量",
   base_charge: "基本料",
