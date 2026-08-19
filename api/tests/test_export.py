@@ -165,6 +165,34 @@ class TestExportPeriod:
         with pytest.raises(export.PeriodNotFoundError):
             export.export_period(db, 999_999_999, export_graph["user"])
 
+    def test_regenerating_after_export_does_not_violate_fk(self, db, export_graph):
+        """export後にgenerate()し直しても壊れない（回帰テスト）。
+
+        issued_document.invoice_id にON DELETE SET NULLが無かったとき、
+        PDF出力済みの期間を再生成しようとすると、generator.generate()の
+        洗い替え（DELETE FROM invoice）がFK違反で500になっていた。design.md
+        の「試し刷り」（未確定期間でのPDF出力）は、その後も編集・再生成が
+        続く前提の運用のため、これは実データ（請求期間23）で実際に発生した
+        重大な回帰だった（money-audit確認ずみ）。
+        """
+        period_id = export_graph["period"].id
+        export.export_period(db, period_id, export_graph["user"])
+        db.flush()
+
+        # 修正前はここで IntegrityError（FK違反）になっていた。
+        generator.generate(db, period_id)
+        db.flush()
+
+        # issued_documentは削除されず、invoice_idだけNULLになる
+        # （「先方に送ったPDFの記録」はfile_path/file_name/revisionに
+        # 残っており、invoice_idが外れても履歴の意味は失われない）。
+        docs = db.execute(
+            select(IssuedDocument).where(IssuedDocument.period_id == period_id)
+        ).scalars().all()
+        assert len(docs) == 5
+        assert all(d.invoice_id is None for d in docs)
+        assert all(d.file_name for d in docs)
+
 
 @pytest.fixture
 def multi_statement_graph(db):

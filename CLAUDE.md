@@ -592,3 +592,41 @@ VBAの`リスト表と営業データの差分()`としていたが、実際のV
 あるなど、実運用上レビューする価値のあるパターンが実際に見つかった
 （本物の欠陥かどうかは業務側の判断に委ねる。このチェックの役割は
 検出であって判定ではない）。
+
+### フェーズ7後に見つかった重大な回帰（`fix/issued-document-invoice-fk`）
+
+F-07の実データ確認中、受け入れテスト22件がFK違反でエラーになっているのに
+気づいた。調べると単なるテストの問題ではなく、**アプリ本体が壊れていた**。
+`issued_document.invoice_id` の外部キーに`ON DELETE`指定が無く（既定は
+RESTRICT）、`generator.generate()`/`importer.run_import()`の洗い替え
+（`DELETE FROM invoice`）が、PDF出力済み（`issued_document`に記録あり）の
+請求書に対して実行されるとFK違反で失敗していた。P-06は「開くたびに自動で
+`generate()`し直す」仕様（フェーズ6で追加）なので、**一度でもPDFを出力
+した期間は、それ以降ページを開くだけで500エラーになる**状態だった
+（`curl -X POST /api/periods/23/generate`で実際に500を確認）。
+
+design.mdの「試し刷り」（未確定期間でのPDF出力）は、その後も編集・
+再生成が続く前提の運用のため、これは軽微な不具合ではなく主要な画面
+（P-06）そのものを壊す回帰だった。修正は`issued_document.invoice_id`に
+`ondelete="SET NULL"`を追加（`0002_issued_document_invoice_fk_set_null.py`）。
+列は元々nullableで、`IssuedDocument`のdocstring通り「先方に何を送ったかの
+正はDBの数値ではなくこのPDFファイル自体」という設計思想に沿っているため、
+`invoice_id`がNULLになっても`file_path`/`file_name`/`revision`等の記録は
+一切失われない。CASCADE（issued_document自体を消す）は「洗い替え対象外・
+削除しない」という確定ルールに反するため不可、RESTRICT維持は上記の回帰を
+放置することになるため、SET NULLが唯一の正しい選択だった。
+
+money-auditが「export直後（invoice_idが実際に非NULL）→即generate」という
+より厳しい経路を独自に再現し、200になることを確認。加えて
+`test_export.py`に`test_regenerating_after_export_does_not_violate_fk`を
+追加し、同じ回帰が再発しないよう固定した。
+
+**教訓**: `issued_document`のように「洗い替え対象外・削除しない」と
+決めたテーブルほど、**そのテーブルが持つ他テーブルへの外部キーの
+`ondelete`挙動**を見落としやすい。「このテーブル自体は消さない」ことと
+「このテーブルが参照する側のレコードは自由に消せる」ことは別の話で、
+参照先（`invoice`）を洗い替えで作り直す設計と、参照元（`issued_document`）
+を永続保存する設計を両方成立させるには、その間のFKを明示的に
+`SET NULL`にする必要があった。新しいテーブルを追加するときは、
+そのテーブルからの外部キーが指す先が将来DELETEされうるかを確認し、
+`ondelete`を明示的に決める。
