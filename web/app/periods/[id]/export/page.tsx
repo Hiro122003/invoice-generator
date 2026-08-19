@@ -77,6 +77,9 @@ export default function ExportPage() {
           <Link href={`/periods/${periodId}/invoices`} className="btn">
             請求書へ
           </Link>
+          <Link href={`/periods/${periodId}/validate`} className="btn">
+            発行前チェックへ
+          </Link>
           <Link href={`/periods/${periodId}/documents`} className="btn">
             発行済み書類一覧へ
           </Link>

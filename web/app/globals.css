@@ -570,6 +570,12 @@ tr.clickable:hover {
   font-variant-numeric: tabular-nums;
 }
 
+/* td.muted は既にあったが、<p className="muted"> 等の非td要素向けの
+   汎用クラスが抜けていた（読み込み中表示などで色が付いていなかった）。 */
+.muted {
+  color: var(--ink-soft);
+}
+
 .toggle {
   border: 1px solid var(--rule);
   background: var(--surface);
@@ -971,4 +977,82 @@ tr.row-edited {
 .btn.small {
   padding: 5px 12px;
   font-size: 12.5px;
+}
+
+/* ==========================================================
+   F-07 発行前チェック
+   ========================================================== */
+
+.chip.info {
+  color: var(--accent);
+  background: var(--paper);
+}
+
+.validation-group {
+  border-left: 3px solid var(--rule);
+  background: var(--surface);
+  padding: 14px 20px;
+  margin: 0 0 16px;
+}
+
+.validation-group.high {
+  border-left-color: var(--ng-fg);
+}
+
+.validation-group.medium {
+  border-left-color: var(--warn-fg);
+}
+
+.validation-group.info {
+  border-left-color: var(--accent);
+}
+
+.validation-group h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.validation-group ul {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.validation-group li {
+  font-size: 13.5px;
+  line-height: 1.7;
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.validation-group li:first-child {
+  border-top: none;
+}
+
+.validation-group .issue-head {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.validation-group .issue-message {
+  display: block;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+.validation-group .issue-sub {
+  color: var(--ink-soft);
+}
+
+.validation-group .issue-amount {
+  margin-left: auto;
+}
+
+.validation-group .issue-amount.prev {
+  color: var(--ink-soft);
 }

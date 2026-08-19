@@ -263,6 +263,9 @@ export default function ContractListPage() {
           <Link href={`/periods/${periodId}/invoices`} className="btn">
             請求書ページへ
           </Link>
+          <Link href={`/periods/${periodId}/validate`} className="btn">
+            発行前チェックへ
+          </Link>
           <Link href="/periods" className="btn">
             請求期間一覧へ
           </Link>
