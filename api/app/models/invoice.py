@@ -134,7 +134,18 @@ class IssuedDocument(Base):
     period_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("billing_period.id"), nullable=False, index=True
     )
-    invoice_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("invoice.id"))
+    # ON DELETE SET NULL。issued_document自体は洗い替え対象外で消さないが、
+    # 参照先の invoice は generator.generate() / importer.run_import() の
+    # 洗い替えで delete→再作成される（同じ período への再生成・再取込は
+    # 通常の運用）。invoice_id にondeleteが無いと、発行済みPDFがある期間を
+    # 再生成しようとしただけで invoice の DELETE がFK違反になり、
+    # 発行前チェック・請求書ページの自動生成そのものが500で壊れる
+    # （実際に発生を確認した）。「先方に何を送ったか」の正はDBの数値では
+    # なくこのPDFなので、invoice_id が外れてもfile_path/file_name/revision
+    # は記録として残り、履歴の意味は失われない。
+    invoice_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("invoice.id", ondelete="SET NULL")
+    )
 
     doc_type: Mapped[str] = mapped_column(Text, nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
